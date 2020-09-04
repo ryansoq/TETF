@@ -16,13 +16,12 @@ jobs:
       uses: actions/checkout@v2
 
     - name: set up TF
-      run: cd ${GITHUB_WORKSPACE}
-
+      run: |
+          cd ${GITHUB_WORKSPACE}
+          echo ${GITHUB_WORKSPACE}
     - name: build
       run: |
-          chmod -x ${GITHUB_WORKSPACE}/build.sh
           sh ${GITHUB_WORKSPACE}/build.sh
     - name: build_faster
       run: |
-          chmod -x ${GITHUB_WORKSPACE}/build_faster.sh
           sh ${GITHUB_WORKSPACE}/build_faster.sh
