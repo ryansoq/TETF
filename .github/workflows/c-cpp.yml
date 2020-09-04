@@ -13,16 +13,16 @@ jobs:
 
     steps:
     - name: 'Checkout codes'
-      uses: actions/checkout@v1
+      uses: actions/checkout@v2
 
     - name: set up TF
-      run: cd ${{ github.workspace }}
+      run: cd ${GITHUB_WORKSPACE}
 
     - name: build
       run: |
-          chmod -x ${{ github.workspace }}/build.sh
-          sh ${{ github.workspace }}/build.sh
+          chmod -x ${GITHUB_WORKSPACE}/build.sh
+          sh ${GITHUB_WORKSPACE}/build.sh
     - name: build_faster
       run: |
-          chmod -x ${{ github.workspace }}/build_faster.sh
-          sh ${{ github.workspace }}/build_faster.sh
+          chmod -x ${GITHUB_WORKSPACE}/build_faster.sh
+          sh ${GITHUB_WORKSPACE}/build_faster.sh
