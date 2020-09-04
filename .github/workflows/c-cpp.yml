@@ -14,9 +14,13 @@ jobs:
     steps:
     - name: 'Checkout codes'
       uses: actions/checkout@v1
+
+    - name: set up TF
+      uses: actions/TF@v1
+
     - name: build
       run: |
-          sh ${{ github.workspace }}/../build.sh
+          sh ./build.sh
     - name: build_faster
       run: |
-          sh ${{ github.workspace }}/../build_faster.sh
+          sh ./build_faster.sh
