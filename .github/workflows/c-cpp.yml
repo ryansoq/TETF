@@ -21,7 +21,9 @@ jobs:
           echo ${GITHUB_WORKSPACE}
     - name: build
       run: |
+          chmod +x ${GITHUB_WORKSPACE}/build.sh
           sh ${GITHUB_WORKSPACE}/build.sh
     - name: build_faster
       run: |
+          chmod +x ${GITHUB_WORKSPACE}/build_faster.sh
           sh ${GITHUB_WORKSPACE}/build_faster.sh
