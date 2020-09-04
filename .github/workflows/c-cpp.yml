@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v1
     - name: build
       run: |
-          sh ${{ github.workspace }}/build.sh
+          sh ${{ github.workspace }}/../build.sh
     - name: build_faster
       run: |
-          sh ${{ github.workspace }}/build_faster.sh
+          sh ${{ github.workspace }}/../build_faster.sh
