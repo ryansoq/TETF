@@ -12,7 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: 'Checkout codes'
+      uses: actions/checkout@v1
     - name: build
-      run: build.sh
+      run: bash ./build.sh
     - name: build_faster
-      run: build_faster.sh
+      run: bash ./build_faster.sh
