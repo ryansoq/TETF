@@ -15,6 +15,8 @@ jobs:
     - name: 'Checkout codes'
       uses: actions/checkout@v1
     - name: build
-      run: bash ./TF/build.sh
+      run: |
+          sh ./build.sh
     - name: build_faster
-      run: bash ./TF/build_faster.sh
+      run: |
+          sh ./build_faster.sh
