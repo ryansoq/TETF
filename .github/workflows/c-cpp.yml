@@ -21,6 +21,6 @@ jobs:
           echo ${GITHUB_WORKSPACE}
           ls
     - name: build
-      run: bash build.h -xe
+      run: bash build.sh -xe
     - name: build_faster
       run: bash build_faster.sh -xe
