@@ -20,9 +20,9 @@ jobs:
 
     - name: build
       run: |
-          chmod -x ./build.sh
-          sh ./build.sh
+          chmod -x ${{ github.workspace }}/build.sh
+          sh ${{ github.workspace }}/build.sh
     - name: build_faster
       run: |
-          chmod -x ./build_faster.sh
-          sh ./build_faster.sh
+          chmod -x ${{ github.workspace }}/build_faster.sh
+          sh ${{ github.workspace }}/build_faster.sh
