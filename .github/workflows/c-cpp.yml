@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v1
 
     - name: set up TF
-      uses: actions/TF@v1
+      run: cd ./TF
 
     - name: build
       run: |
