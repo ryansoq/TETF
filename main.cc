@@ -444,13 +444,14 @@ void Conv_t::forward()
 
 void Conv_t::backward()
 {
+    int c = m_c;
     int m = m_m;
     int n = m_n;
     int ks = m_ks;
     tensor &x = *input1;
     tensor &w = *input2;
 
-    for (int i = 0; i < m * n; i++)
+    for (int i = 0; i < c * m * n; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
         {
@@ -459,7 +460,7 @@ void Conv_t::backward()
     }
 
     //printf("conv->weight : ");
-    for (int i = 0; i < ks * ks; i++)
+    for (int i = 0; i < m_out_c * ks * ks; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
         {
@@ -473,20 +474,21 @@ void Conv_t::backward()
 
 void Conv_t::update()
 {
+    int c = m_c;
     int m = m_m;
     int n = m_n;
     int ks = m_ks;
     tensor &x = *input1;
     tensor &w = *input2;
 
-    for (int i = 0; i < m * n; i++)
+    for (int i = 0; i < c * m * n; i++)
     {
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
 
-    for (int i = 0; i < ks * ks; i++)
+    for (int i = 0; i < m_out_c * ks * ks; i++)
     {
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
