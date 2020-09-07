@@ -6,7 +6,6 @@
 #include <list>
 #include <mnist/mnist_reader.hpp>
 
-//#include <bits/stdc++.h> 
 // Net class
 float lr = 0.1;
 
@@ -19,7 +18,7 @@ class node
         float diff;
         std::vector< std::pair<float, node*> > diffs;
       
-        node();
+    node();
         void printDiff(void);
         void setDiff(float dfdx, node * dldf);
 };
@@ -342,53 +341,105 @@ public:
     tensor * input2;
     int m_stride;
     int m_ks;
+    int m_c;
     int m_m;
     int m_n;
+    int m_out_c;
     int m_out_x;
     int m_out_y;
     int m_pad;
-    Conv_t(tensor &out, tensor &a, tensor &b, int mm, int nn, int stride, int pad, int ks, int out_x, int out_y);
+    Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
     void forward();
     void backward();
     void update();
 };
 
-Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mm, int nn, int stride, int pad, int ks, int out_x, int out_y)
+Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y)
 {
     output = &out;
     input1 = &a;
     input2 = &b;
+    m_c = mc;
     m_m = mm;
     m_n = nn;
     m_ks = ks;
     m_pad = pad;
     m_stride = stride;
+    m_out_c = out_c;
     m_out_x = out_x;
     m_out_y = out_y;
 }
 
 void Conv_t::forward()
 { 
-     
-    for (int i = 0; i < m_out_x; i++) //2
+
+    const uint16_t in_tensor_dim = m_m;
+    const uint16_t in_tensor_ch = m_c;
+    const uint16_t out_tensor_ch = m_out_c;
+    const uint16_t ker_dim = m_ks;
+    const uint16_t pad = m_pad;
+    const uint16_t stride = m_stride;
+    const uint16_t out_tensor_dim = m_out_x;
+    uint16_t  i, j, k, l, m, n;
+    long in_row, in_col;
+
+    for (i = 0; i < out_tensor_ch; i++)
     {
-        for (int j = 0; j < m_out_y; j++) //1
+        for (j = 0; j < out_tensor_dim; j++)
         {
-            //--------------------
-            (*output)[i * m_out_y + j].val = 0;
-            for (int m = 0; m < m_ks; m++)
+            for (k = 0; k < out_tensor_dim; k++)
             {
-                for (int n = 0; n < m_ks; n++)
+                (*output)[i * out_tensor_dim * out_tensor_dim + j * out_tensor_dim + k].val = 0.0; //init
+                for (m = 0; m < ker_dim; m++)
                 {
-                                            // if-for implementation
-                    int  in_col = m_stride * i + m - m_pad; 
-                    int  in_row = m_stride * j + n - m_pad;
-		    if (in_row >= 0 && in_col >= 0 && in_row < m_out_x && in_col < m_out_y)
-                    	mul_acc(&(*output)[i * m_out_y + j], &(*input1)[(in_col) * m_m + (in_row)], &(*input2)[m * m_ks + n]);
+                    for (n = 0; n < ker_dim; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - pad;
+                        in_col = stride * k + n - pad;
+                        if (in_row >= 0 && in_col >= 0 && in_row < in_tensor_dim && in_col < in_tensor_dim)
+                        {
+                            for (l = 0; l < in_tensor_ch; l++)
+                            {
+                                mul_acc(&(*output)[i * out_tensor_dim * out_tensor_dim + j * out_tensor_dim + k],
+                                &(*input1)[l * in_tensor_dim * in_tensor_dim + in_row * in_tensor_dim + in_col],
+                                &(*input2)[(i * ker_dim * ker_dim * in_tensor_ch) + (l * ker_dim * ker_dim )+ (m * ker_dim) + n]); // in_tensor * ker_weight
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+/*
+    for (int i = 0; i < m_out_c; i++) //2
+    {
+        for (int j = 0; j < m_out_y; j++) //1
+        {
+            for (int k = 0; i < m_out_x; k++) //2
+            {
+                //--------------------
+                conv_out = 0;
+                for (int m = 0; m < m_ks; m++)
+                {
+                    for (int n = 0; n < m_ks; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - pad;
+                        in_col = stride * k + n - pad;
+                        if (in_row >= 0 && in_col >= 0 && in_row < m_out_x && in_col < m_out_y)
+                        {
+                            for (l = 0; l < in_tensor_ch; l++)
+                            {
+                                mul_acc(&(*output)[i * m_out_y + j], &(*input1)[(in_col) * m_m + (in_row)], &(*input2)[m * m_ks + n]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+*/
 }
 
 void Conv_t::backward()
@@ -1762,8 +1813,8 @@ int main()
 
     net.AddLayer(&lose_mse_t);
 */
-    tensor cx(shape = {28, 28});
-    tensor cw1(shape = {3, 3});
+    tensor cx(shape = {1, 28, 28});
+    tensor cw1(shape = {3, 3, 3});
 
     tensor x(shape = {1, 784});
     tensor w1(shape = {784, 100});
@@ -1780,8 +1831,8 @@ int main()
 
     tensor ans(shape = {10});
     tensor loss(shape = {1});
- 
-    Conv_t conv_1(x, cx, cw1, 28, 28, 1, 1, 3, 28, 28);
+    //Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
+    Conv_t conv_1(x, cx, cw1, 1, 28, 28, 1, 1, 3, 3, 28, 28);
     Matmul_t mat_1(o1, x, w1, 1, 784, 100);
     Add_t add_1(sig1, o1, b1, 100);
     Sigmoid_t sig_1(sig_out1, sig1, 100);
@@ -1811,6 +1862,8 @@ int main()
     int epoch = 160;
     int batch = 1;
     float Acc_ok = 99.0;
+    float Accuracy;
+
     for (int e = 0; e < epoch; e++)
     {
         for (unsigned int i = 0; i < dataset.training_images.size(); i++)
@@ -1868,14 +1921,12 @@ int main()
             test_num ++;
             if ((int)test_num % test_runs_count == 0)
             {
-                float Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100; 
+                Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
                 std::cout << "[Epoch : " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
-                if (Accuracy >= Acc_ok)
-		   break;	
             } 
-            //std::cout << "memLeaks : " << std::func_to_handle_mem_leak() << std::endl;
-            //usleep(1000*1000);
         }
+        if (Accuracy >= Acc_ok)
+          break;
     }
 
     return 0;
