@@ -11,47 +11,48 @@ float lr = 0.1;
 
 class node
 {
-    public:
-        static int nextID;
-        std::string id;
-        float val;
-        float diff;
-        std::vector< std::pair<float, node*> > diffs;
-      
+public:
+    static int nextID;
+    std::string id;
+    float val;
+    float diff;
+    std::vector<std::pair<float, node *>> diffs;
+
     node();
-        void printDiff(void);
-        void setDiff(float dfdx, node * dldf);
+    void printDiff(void);
+    void setDiff(float dfdx, node *dldf);
 };
 
 int node::nextID = 0;
 
-node::node() 
+node::node()
 {
-   std::string str = std::to_string(++nextID);
-   id = "∂x" + str;
+    std::string str = std::to_string(++nextID);
+    id = "∂x" + str;
 }
 
-void node::setDiff(float dfdx, node * dldf)
+void node::setDiff(float dfdx, node *dldf)
 {
-    std::pair<float, node*> val;
+    std::pair<float, node *> val;
     val.first = dfdx;
     val.second = dldf;
     diffs.push_back(val);
 };
 
-typedef struct {
-  /*!
+typedef struct
+{
+    /*!
    * \brief Type code of base types.
    * We keep it uint8_t instead of DLDataTypeCode for minimal memory
    * footprint, but the value should be one of DLDataTypeCode enum values.
    * */
-  uint8_t code;
-  /*!
+    uint8_t code;
+    /*!
    * \brief Number of bits, common choices are 8, 16, 32.
    */
-  uint8_t bits;
-  /*! \brief Number of lanes in the type, used for vector types. */
-  uint16_t lanes;
+    uint8_t bits;
+    /*! \brief Number of lanes in the type, used for vector types. */
+    uint16_t lanes;
 } DLDataType;
 
 class tensor
@@ -69,7 +70,7 @@ public:
     {
         //data = 0;
     }
-    
+
     tensor(std::vector<int> _shape)
     {
         shape = _shape;
@@ -78,11 +79,11 @@ public:
 
         for (int i = 0; i < ndim; i++)
             shape_size *= shape[i];
-/*
+        /*
         data = (node *)malloc(sizeof(node) * shape_size);
 */
         data.resize(shape_size);
-/*
+        /*
         data = new node[shape_size];
 
         if (data == nullptr)
@@ -95,7 +96,7 @@ public:
         for (int i = 0; i < shape_size; i++)
             data[i].val = rand() % 1000 * 0.001 - 0.5;
     }
-  
+
     ~tensor()
     {
         /*
@@ -104,14 +105,13 @@ public:
         */
     }
 
-    node& operator[](std::size_t idx)       
-    { 
-        return data[idx]; 
+    node &operator[](std::size_t idx)
+    {
+        return data[idx];
     }
-
 };
 
-float get_diff(node * src, node * dst)
+float get_diff(node *src, node *dst)
 {
     if (src == dst)
     {
@@ -129,14 +129,14 @@ float get_diff(node * src, node * dst)
     }
 }
 
-void mul(node * output, node * input1, node * input2)
+void mul(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = input1->val;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -144,14 +144,14 @@ void mul(node * output, node * input1, node * input2)
     output->val = input1->val * input2->val;
 }
 
-void mul_acc(node * output, node * input1, node * input2)
+void mul_acc(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = input1->val;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -159,14 +159,14 @@ void mul_acc(node * output, node * input1, node * input2)
     output->val += input1->val * input2->val;
 }
 
-float mul_diff(node * input1, node * input2, node * output)
+float mul_diff(node *input1, node *input2, node *output)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = input1->val;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -174,14 +174,14 @@ float mul_diff(node * input1, node * input2, node * output)
     return input1->val * input2->val;
 }
 
-void add(node * output, node * input1, node * input2)
+void add(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = 1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -189,14 +189,14 @@ void add(node * output, node * input1, node * input2)
     output->val = input1->val + input2->val;
 }
 
-void add_acc(node * output, node * input1, node * input2)
+void add_acc(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = 1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -204,14 +204,14 @@ void add_acc(node * output, node * input1, node * input2)
     output->val += input1->val + input2->val;
 }
 
-float add_diff(node * input1, node * input2, node * output)
+float add_diff(node *input1, node *input2, node *output)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = 1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -219,14 +219,14 @@ float add_diff(node * input1, node * input2, node * output)
     return input1->val + input2->val;
 }
 
-void sub(node * output, node * input1, node * input2)
+void sub(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -234,14 +234,14 @@ void sub(node * output, node * input1, node * input2)
     output->val = input1->val - input2->val;
 }
 
-void sub_acc(node * output, node * input1, node * input2)
+void sub_acc(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -250,14 +250,14 @@ void sub_acc(node * output, node * input1, node * input2)
 }
 
 // input1 - input2
-float sub_diff(node * input1, node * input2, node * output)
+float sub_diff(node *input1, node *input2, node *output)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1;
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -267,14 +267,14 @@ float sub_diff(node * input1, node * input2, node * output)
 
 // input1/input2
 // https://zs.symbolab.com/solver/partial-derivative-calculator/%20%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20y%7D%5Cleft(%5Cfrac%7Bx%7D%7By%7D%5Cright)
-float div_diff(node * input1, node * input2, node * output)
+float div_diff(node *input1, node *input2, node *output)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1 / input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1 * (input1->val / (input2->val * input2->val));
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -282,14 +282,14 @@ float div_diff(node * input1, node * input2, node * output)
     return input1->val / input2->val;
 }
 
-void div(node * output, node * input1, node * input2)
+void div(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1 / input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1 * (input1->val / (input2->val * input2->val));
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -297,14 +297,14 @@ void div(node * output, node * input1, node * input2)
     output->val = input1->val / input2->val;
 }
 
-void div_acc(node * output, node * input1, node * input2)
+void div_acc(node *output, node *input1, node *input2)
 {
-    std::pair<float, node*> diff1;
+    std::pair<float, node *> diff1;
     diff1.first = 1 / input2->val;
     diff1.second = output;
     input1->diffs.push_back(diff1);
 
-    std::pair<float, node*> diff2;
+    std::pair<float, node *> diff2;
     diff2.first = -1 * (input1->val / (input2->val * input2->val));
     diff2.second = output;
     input2->diffs.push_back(diff2);
@@ -312,33 +312,33 @@ void div_acc(node * output, node * input1, node * input2)
     output->val += input1->val / input2->val;
 }
 
-class opBase 
+class opBase
 {
 public:
     virtual void forward()
-    {  
-        std::cout << "forward, Base" << std::endl;  
+    {
+        std::cout << "forward, Base" << std::endl;
     }
     virtual void backward()
-    {  
-        std::cout << "backward, Base" << std::endl;  
+    {
+        std::cout << "backward, Base" << std::endl;
     }
     virtual void update()
-    {  
-        std::cout << "update, Base" << std::endl;  
+    {
+        std::cout << "update, Base" << std::endl;
     }
     virtual void print()
-    {  
-        std::cout << "print, Base" << std::endl;  
+    {
+        std::cout << "print, Base" << std::endl;
     }
 };
 
-class Conv_t : public opBase 
+class Conv_t : public opBase
 {
 public:
-    tensor * output;
-    tensor * input1;
-    tensor * input2;
+    tensor *output;
+    tensor *input1;
+    tensor *input2;
     int m_stride;
     int m_ks;
     int m_c;
@@ -371,7 +371,7 @@ Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int st
 }
 
 void Conv_t::forward()
-{ 
+{
 
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
@@ -380,7 +380,7 @@ void Conv_t::forward()
     const uint16_t pad = m_pad;
     const uint16_t stride = m_stride;
     const uint16_t out_tensor_dim = m_out_x;
-    uint16_t  i, j, k, l, m, n;
+    uint16_t i, j, k, l, m, n;
     long in_row, in_col;
 
     for (i = 0; i < out_tensor_ch; i++)
@@ -402,8 +402,8 @@ void Conv_t::forward()
                             for (l = 0; l < in_tensor_ch; l++)
                             {
                                 mul_acc(&(*output)[i * out_tensor_dim * out_tensor_dim + j * out_tensor_dim + k],
-                                &(*input1)[l * in_tensor_dim * in_tensor_dim + in_row * in_tensor_dim + in_col],
-                                &(*input2)[(i * ker_dim * ker_dim * in_tensor_ch) + (l * ker_dim * ker_dim )+ (m * ker_dim) + n]); // in_tensor * ker_weight
+                                        &(*input1)[l * in_tensor_dim * in_tensor_dim + in_row * in_tensor_dim + in_col],
+                                        &(*input2)[(i * ker_dim * ker_dim * in_tensor_ch) + (l * ker_dim * ker_dim) + (m * ker_dim) + n]); // in_tensor * ker_weight
                             }
                         }
                     }
@@ -411,7 +411,7 @@ void Conv_t::forward()
             }
         }
     }
-/*
+    /*
     for (int i = 0; i < m_out_c; i++) //2
     {
         for (int j = 0; j < m_out_y; j++) //1
@@ -443,7 +443,7 @@ void Conv_t::forward()
 }
 
 void Conv_t::backward()
-{ 
+{
     int m = m_m;
     int n = m_n;
     int ks = m_ks;
@@ -465,14 +465,14 @@ void Conv_t::backward()
         {
             w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
         }
-	//if (w[i].diff != 0.0)
+        //if (w[i].diff != 0.0)
         //	printf("%f ", w[i].diff);
     }
     //printf("\n");
 }
 
 void Conv_t::update()
-{ 
+{
     int m = m_m;
     int n = m_n;
     int ks = m_ks;
@@ -494,7 +494,7 @@ void Conv_t::update()
     }
 }
 
-class Conv : public opBase 
+class Conv : public opBase
 {
 public:
     node *output;
@@ -526,7 +526,7 @@ Conv::Conv(node *out, node *a, node *b, int m, int n, int stride, int ks, int ou
 }
 
 void Conv::forward()
-{ 
+{
     for (int i = 0; i < m_out_x; i++) //2
     {
         for (int j = 0; j < m_out_y; j++) //1
@@ -541,9 +541,8 @@ void Conv::forward()
                 for (int x = 0; x < m_ks; x++)
                 {
                     //output[i * m_out_y + j].val += mul_diff(&input1[(y + offsetY) * m_n + (x + offsetX)], &input2[y * m_ks + x], &output[i * m_out_y + j]);
- 
-                    output[i * m_out_y + j].val =  output[i * m_out_y + j].val + input1[(y + offsetY) * m_n + (x + offsetX)].val 
-                                                *  input2[y * m_ks + x].val;
+
+                    output[i * m_out_y + j].val = output[i * m_out_y + j].val + input1[(y + offsetY) * m_n + (x + offsetX)].val * input2[y * m_ks + x].val;
                     input1[(y + offsetY) * m_n + (x + offsetX)].setDiff(input2[y * m_ks + x].val, &output[i * m_out_y + j]);
                     input2[y * m_ks + x].setDiff(input1[(y + offsetY) * m_n + (x + offsetX)].val, &output[i * m_out_y + j]);
                 }
@@ -567,7 +566,7 @@ void Conv::backward()
             x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
         }
     }
-    
+
     for (int i = 0; i < ks * ks; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
@@ -600,14 +599,14 @@ void Conv::update()
     }
 }
 
-class Matmul_t : public opBase 
+class Matmul_t : public opBase
 {
 public:
-    tensor * output;
-    tensor * input1;
-    tensor * input2;
+    tensor *output;
+    tensor *input1;
+    tensor *input2;
     int m_m;
-    int m_k; 
+    int m_k;
     int m_n;
     Matmul_t(tensor &out, tensor &a, tensor &b, int m, int k, int n);
     void forward();
@@ -661,22 +660,22 @@ void Matmul_t::forward()
     }
     */
     //exec
-    for(int i=0; i < m; i++)
-    { 
-        for(int j=0; j < n; j++)    
-        {  
-            out[i*n+j].val = 0;
-            for(int q=0; q < k; q++)    
+    for (int i = 0; i < m; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            out[i * n + j].val = 0;
+            for (int q = 0; q < k; q++)
             {
                 //out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
                 out[i * n + j].val += mul_diff(&a[i * k + q], &b[q * n + j], &out[i * n + j]);
-/*
+                /*
                 a[i * k + q].setDiff(b[q * n + j].val, &out[i * n + j]);
                 b[q * n + j].setDiff(a[i * k + q].val, &out[i * n + j]);
 */
             }
-        }    
-    } 
+        }
+    }
 }
 
 void Matmul_t::backward()
@@ -689,9 +688,9 @@ void Matmul_t::backward()
 
     for (int i = 0; i < m * k; i++)
     {
-        while(!x[i].diffs.empty())
+        while (!x[i].diffs.empty())
         {
-            std::pair<float, node*> pop = x[i].diffs.back();
+            std::pair<float, node *> pop = x[i].diffs.back();
             x[i].diff += pop.first * pop.second->diff;
             x[i].diffs.pop_back();
         }
@@ -699,14 +698,14 @@ void Matmul_t::backward()
 
     for (int i = 0; i < k * n; i++)
     {
-        while(!w[i].diffs.empty())
+        while (!w[i].diffs.empty())
         {
-            std::pair<float, node*> pop = w[i].diffs.back();
+            std::pair<float, node *> pop = w[i].diffs.back();
             w[i].diff += pop.first * pop.second->diff;
             w[i].diffs.pop_back();
         }
     }
-/*
+    /*
     for (int i = 0; i < m * k; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -747,14 +746,14 @@ void Matmul_t::update()
     }
 }
 
-class Matmul : public opBase 
+class Matmul : public opBase
 {
 public:
     node *output;
     node *input1;
     node *input2;
     int m_m;
-    int m_k; 
+    int m_k;
     int m_n;
     Matmul(node *out, node *a, node *b, int m, int k, int n);
     void forward();
@@ -781,22 +780,22 @@ void Matmul::forward()
     node *a = input1;
     node *b = input2;
 
-    for(int i=0; i < m; i++)
-    { 
-        for(int j=0; j < n; j++)    
-        {  
-            out[i*n+j].val = 0;
-            for(int q=0; q < k; q++)    
+    for (int i = 0; i < m; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            out[i * n + j].val = 0;
+            for (int q = 0; q < k; q++)
             {
                 //out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
                 out[i * n + j].val += mul_diff(&a[i * k + q], &b[q * n + j], &out[i * n + j]);
-/*
+                /*
                 a[i * k + q].setDiff(b[q * n + j].val, &out[i * n + j]);
                 b[q * n + j].setDiff(a[i * k + q].val, &out[i * n + j]);
 */
             }
-        }    
-    } 
+        }
+    }
 }
 
 void Matmul::backward()
@@ -814,7 +813,7 @@ void Matmul::backward()
             x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
         }
     }
-    
+
     for (int i = 0; i < k * n; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
@@ -847,8 +846,7 @@ void Matmul::update()
     }
 }
 
-void node::printDiff(void) 
-{
+void node::printDiff(void){
     /*
     for (int i = 0; i < diffs.size(); i++)
     {
@@ -863,7 +861,7 @@ void node::printDiff(void)
     */
 };
 
-class Add_t : public opBase 
+class Add_t : public opBase
 {
 public:
     tensor *output;
@@ -906,14 +904,13 @@ void Add_t::forward()
     }
     */
     //exec
-    for(int i=0; i < length; i++)
-    { 
+    for (int i = 0; i < length; i++)
+    {
         //out[i].val = a[i].val + b[i].val;
         out[i].val = add_diff(&a[i], &b[i], &out[i]);
 
         //a[i].setDiff(1, &out[i]);
         //b[i].setDiff(1, &out[i]);
-
     }
 }
 
@@ -924,9 +921,9 @@ void Add_t::backward()
 
     for (int i = 0; i < length; i++)
     {
-        while(!x[i].diffs.empty())
+        while (!x[i].diffs.empty())
         {
-            std::pair<float, node*> pop = x[i].diffs.back();
+            std::pair<float, node *> pop = x[i].diffs.back();
             x[i].diff += pop.first * pop.second->diff;
             x[i].diffs.pop_back();
         }
@@ -934,14 +931,14 @@ void Add_t::backward()
 
     for (int i = 0; i < length; i++)
     {
-        while(!w[i].diffs.empty())
+        while (!w[i].diffs.empty())
         {
-            std::pair<float, node*> pop = w[i].diffs.back();
+            std::pair<float, node *> pop = w[i].diffs.back();
             w[i].diff += pop.first * pop.second->diff;
             w[i].diffs.pop_back();
         }
     }
-/*
+    /*
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -979,7 +976,7 @@ void Add_t::update()
     }
 }
 
-class Add : public opBase 
+class Add : public opBase
 {
 public:
     node *output;
@@ -1007,11 +1004,11 @@ void Add::forward()
     node *a = input1;
     node *b = input2;
 
-    for(int i=0; i < length; i++)
-    { 
+    for (int i = 0; i < length; i++)
+    {
         //out[i].val = a[i].val + b[i].val;
         out[i].val = add_diff(&a[i], &b[i], &out[i]);
-/*
+        /*
         a[i].setDiff(1, &out[i]);
         b[i].setDiff(1, &out[i]);
 */
@@ -1030,7 +1027,7 @@ void Add::backward()
             x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
         }
     }
-    
+
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
@@ -1060,7 +1057,7 @@ void Add::update()
     }
 }
 
-class ReLU_t : public opBase 
+class ReLU_t : public opBase
 {
 public:
     tensor output;
@@ -1124,7 +1121,7 @@ void ReLU_t::update()
     }
 }
 
-class ReLU : public opBase 
+class ReLU : public opBase
 {
 public:
     node *output;
@@ -1188,7 +1185,7 @@ void ReLU::update()
     }
 }
 
-class Sigmoid_t : public opBase 
+class Sigmoid_t : public opBase
 {
 public:
     tensor *output;
@@ -1225,7 +1222,7 @@ void Sigmoid_t::forward()
     */
     for (int i = 0; i < length; i++)
     {
-        out[i].val = 1.0/(1.0+exp(-a[i].val));
+        out[i].val = 1.0 / (1.0 + exp(-a[i].val));
         a[i].setDiff(out[i].val * (1 - out[i].val), &out[i]);
     }
 }
@@ -1236,14 +1233,14 @@ void Sigmoid_t::backward()
 
     for (int i = 0; i < length; i++)
     {
-        while(!x[i].diffs.empty())
+        while (!x[i].diffs.empty())
         {
-            std::pair<float, node*> pop = x[i].diffs.back();
+            std::pair<float, node *> pop = x[i].diffs.back();
             x[i].diff += pop.first * pop.second->diff;
             x[i].diffs.pop_back();
         }
     }
- /*
+    /*
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -1265,7 +1262,7 @@ void Sigmoid_t::update()
     }
 }
 
-class Sigmoid : public opBase 
+class Sigmoid : public opBase
 {
 public:
     node *output;
@@ -1291,7 +1288,7 @@ void Sigmoid::forward()
 
     for (int i = 0; i < length; i++)
     {
-        out[i].val = 1.0/(1.0+exp(-a[i].val));
+        out[i].val = 1.0 / (1.0 + exp(-a[i].val));
         a[i].setDiff(out[i].val * (1 - out[i].val), &out[i]);
     }
 }
@@ -1321,7 +1318,7 @@ void Sigmoid::update()
     }
 }
 
-class Loss_MSE_t : public opBase 
+class Loss_MSE_t : public opBase
 {
 public:
     tensor *output;
@@ -1334,7 +1331,6 @@ public:
     void backward();
     void update();
 };
-
 
 Loss_MSE_t::Loss_MSE_t(tensor &out, tensor &a, tensor &b, int len)
 {
@@ -1368,11 +1364,11 @@ void Loss_MSE_t::forward()
     */
     float sum = 0;
 
-    for(int i=0; i < m; i++)
+    for (int i = 0; i < m; i++)
     {
         sum += pow(src[i].val - dest[i].val, 2);
         // https://zs.symbolab.com/solver/partial-derivative-calculator/%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20x%7D%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cleft(x-y%5Cright)%5E%7B2%7D%5Cright)
-        // ∂/∂x = x - y, ∂/∂y = -x + y 
+        // ∂/∂x = x - y, ∂/∂y = -x + y
         src[i].setDiff(src[i].val - dest[i].val, &loss[0]);
         dest[i].setDiff(-src[i].val + dest[i].val, &loss[0]);
     }
@@ -1389,9 +1385,9 @@ void Loss_MSE_t::backward()
 
     for (int i = 0; i < length; i++)
     {
-        while(!x[i].diffs.empty())
+        while (!x[i].diffs.empty())
         {
-            std::pair<float, node*> pop = x[i].diffs.back();
+            std::pair<float, node *> pop = x[i].diffs.back();
             x[i].diff += pop.first * pop.second->diff;
             x[i].diffs.pop_back();
         }
@@ -1399,14 +1395,14 @@ void Loss_MSE_t::backward()
 
     for (int i = 0; i < length; i++)
     {
-        while(!w[i].diffs.empty())
+        while (!w[i].diffs.empty())
         {
-            std::pair<float, node*> pop = w[i].diffs.back();
+            std::pair<float, node *> pop = w[i].diffs.back();
             w[i].diff += pop.first * pop.second->diff;
             w[i].diffs.pop_back();
         }
     }
-/*
+    /*
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -1443,7 +1439,7 @@ void Loss_MSE_t::update()
     }
 }
 
-class Loss_MSE : public opBase 
+class Loss_MSE : public opBase
 {
 public:
     node *output;
@@ -1456,7 +1452,6 @@ public:
     void backward();
     void update();
 };
-
 
 Loss_MSE::Loss_MSE(node *out, node *a, node *b, int len)
 {
@@ -1472,14 +1467,14 @@ void Loss_MSE::forward()
     node *src = input1;
     node *dest = input2;
     int m = length;
-    
+
     float sum = 0;
 
-    for(int i=0; i < m; i++)
+    for (int i = 0; i < m; i++)
     {
         sum += pow(src[i].val - dest[i].val, 2);
         // https://zs.symbolab.com/solver/partial-derivative-calculator/%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20x%7D%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cleft(x-y%5Cright)%5E%7B2%7D%5Cright)
-        // ∂/∂x = x - y, ∂/∂y = -x + y 
+        // ∂/∂x = x - y, ∂/∂y = -x + y
         src[i].setDiff(src[i].val - dest[i].val, loss);
         dest[i].setDiff(-src[i].val + dest[i].val, loss);
     }
@@ -1501,7 +1496,7 @@ void Loss_MSE::backward()
             x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
         }
     }
-    
+
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
@@ -1534,26 +1529,26 @@ void Loss_MSE::update()
     output->diffs.clear();
 }
 
-                                      // [1 * 3 * 2]                   
+// [1 * 3 * 2]
 void matmul(node *out, node *a, node *b, int m, int k, int n)
 {
-    for(int i=0; i < m; i++)
-    { 
-        for(int j=0; j < n; j++)    
-        {  
-            out[i*n+j].val = 0;
-            for(int q=0; q < k; q++)    
+    for (int i = 0; i < m; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            out[i * n + j].val = 0;
+            for (int q = 0; q < k; q++)
             {
-                out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
- 
+                out[i * n + j].val += a[i * k + q].val * b[q * n + j].val;
+
                 a[i * k + q].setDiff(b[q * n + j].val, &out[i * n + j]);
                 b[q * n + j].setDiff(a[i * k + q].val, &out[i * n + j]);
             }
-        }    
-    }  
+        }
+    }
 }
 
-class External_t : public opBase 
+class External_t : public opBase
 {
 public:
     tensor *output;
@@ -1587,7 +1582,7 @@ void External_t::forward()
 {
     //tensor &x = *output;
     //*output = keep;
-/*
+    /*
     tensor &x = keep;
     std::cout << "keep[0].val : " << keep[0].val << std::endl;
     std::cout << "keep[1].val : " << keep[1].val << std::endl;
@@ -1617,12 +1612,12 @@ void loss_MSE(node *loss, node *src, node *dest, int m)
 {
     float sum = 0;
 
-    for(int i=0; i < m; i++)
+    for (int i = 0; i < m; i++)
     {
         sum += pow(src[i].val - dest[i].val, 2);
 
         // https://zs.symbolab.com/solver/partial-derivative-calculator/%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20x%7D%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cleft(x-y%5Cright)%5E%7B2%7D%5Cright)
-        // ∂/∂x = x - y, ∂/∂y = -x + y 
+        // ∂/∂x = x - y, ∂/∂y = -x + y
         src[i].setDiff(src[i].val - dest[i].val, loss);
         dest[i].setDiff(-src[i].val + dest[i].val, loss);
     }
@@ -1634,44 +1629,44 @@ void loss_MSE(node *loss, node *src, node *dest, int m)
 
 void add(node *out, node *a, node *b, int length)
 {
-    for(int i=0; i < length; i++)
-    { 
+    for (int i = 0; i < length; i++)
+    {
         out[i].val = a[i].val + b[i].val;
- 
+
         a[i].setDiff(1, &out[i]);
         b[i].setDiff(1, &out[i]);
     }
 }
 
-class netBase 
+class netBase
 {
 public:
     virtual void forward()
-    {  
-        std::cout << "forward, Base" << std::endl;  
+    {
+        std::cout << "forward, Base" << std::endl;
     }
     virtual void backward()
-    {  
-        std::cout << "backward, Base" << std::endl;  
+    {
+        std::cout << "backward, Base" << std::endl;
     }
     virtual void update()
-    {  
-        std::cout << "update, Base" << std::endl;  
+    {
+        std::cout << "update, Base" << std::endl;
     }
 };
 
-class Net : public netBase  
+class Net : public netBase
 {
 public:
-    std::list<opBase*> Layer;
-    void AddLayer(opBase*);
+    std::list<opBase *> Layer;
+    void AddLayer(opBase *);
     void forward();
     void backward();
     void update();
     void print();
 };
 
-void Net::AddLayer(opBase* ler)
+void Net::AddLayer(opBase *ler)
 {
     Layer.push_back(ler);
 }
@@ -1679,30 +1674,27 @@ void Net::AddLayer(opBase* ler)
 void Net::forward()
 {
     // Net - > Op(Layer) -> node
-    for (std::list<opBase*>::iterator choose=Layer.begin(); choose!=Layer.end(); ++choose)
+    for (std::list<opBase *>::iterator choose = Layer.begin(); choose != Layer.end(); ++choose)
         (*choose)->forward();
 }
 
 void Net::backward()
 {
-    for (std::list<opBase*>::reverse_iterator choose=Layer.rbegin(); choose!=Layer.rend(); ++choose)
+    for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
         (*choose)->backward();
 }
 
 void Net::update()
 {
-    for (std::list<opBase*>::reverse_iterator choose=Layer.rbegin(); choose!=Layer.rend(); ++choose)
-        (*choose)->update(); 
+    for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
+        (*choose)->update();
 }
 
 void Net::print()
 {
-    for (std::list<opBase*>::reverse_iterator choose=Layer.rbegin(); choose!=Layer.rend(); ++choose)
-        (*choose)->print(); 
+    for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
+        (*choose)->print();
 }
-
-
-
 
 #if 0
 float Testing(Net &net, int test_runs_count)
@@ -1766,7 +1758,7 @@ int main()
 
 #if 1
     mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> dataset =
-    mnist::read_dataset<std::vector, std::vector, uint8_t, uint8_t>("./third_party/mnist/");
+        mnist::read_dataset<std::vector, std::vector, uint8_t, uint8_t>("./third_party/mnist/");
     std::cout << "Nbr of training images = " << dataset.training_images.size() << std::endl;
     std::cout << "Nbr of training labels = " << dataset.training_labels.size() << std::endl;
     std::cout << "Nbr of test images = " << dataset.test_images.size() << std::endl;
@@ -1774,7 +1766,7 @@ int main()
     std::cout << "----------------------" << std::endl;
 
     std::vector<int> shape;
-/*
+    /*
     tensor x(shape = {1, 784});
     tensor w1(shape = {784, 100});
     tensor o1(shape = {100});
@@ -1824,7 +1816,7 @@ int main()
     tensor sig_out1(shape = {100});
 
     tensor w2(shape = {100, 10});
-    tensor o2(shape = {10});    
+    tensor o2(shape = {10});
     tensor b2(shape = {10});
     tensor sig2(shape = {10});
     tensor sig_out2(shape = {10});
@@ -1872,7 +1864,8 @@ int main()
                 cx[j].val = ((float)(unsigned int)dataset.training_images[i][j]) / 255;
 
             int target_value = (unsigned int)dataset.training_labels[i];
-            for (int k = 0; k < 10; k++){
+            for (int k = 0; k < 10; k++)
+            {
                 ans[k].val = 0;
             }
             ans[target_value].val = 1;
@@ -1918,15 +1911,15 @@ int main()
             net.update();
 
             //std::cout << "Correct : " << Correct << " , " << "Error : " << Error << " , Rate : " << (float)Correct / ((float)Correct + (float)Error)<< std::endl;
-            test_num ++;
+            test_num++;
             if ((int)test_num % test_runs_count == 0)
             {
                 Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
                 std::cout << "[Epoch : " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
-            } 
+            }
         }
         if (Accuracy >= Acc_ok)
-          break;
+            break;
     }
 
     return 0;
