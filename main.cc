@@ -453,111 +453,6 @@ void Conv_t::update()
     }
 }
 
-class Conv : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    node *input2;
-    int m_stride;
-    int m_ks;
-    int m_m;
-    int m_n;
-    int m_out_x;
-    int m_out_y;
-    Conv(node *out, node *a, node *b, int m, int n, int stride, int ks, int out_x, int out_y);
-    void forward();
-    void backward();
-    void update();
-};
-
-Conv::Conv(node *out, node *a, node *b, int m, int n, int stride, int ks, int out_x, int out_y)
-{
-    output = out;
-    input1 = a;
-    input2 = b;
-    m_m = m;
-    m_n = n;
-    m_ks = ks;
-    m_stride = stride;
-    m_out_x = out_x;
-    m_out_y = out_y;
-}
-
-void Conv::forward()
-{
-    for (int i = 0; i < m_out_x; i++) //2
-    {
-        for (int j = 0; j < m_out_y; j++) //1
-        {
-            //--------------------
-            output[i * m_out_y + j].val = 0;
-            int offsetY = i * m_stride;
-            int offsetX = j * m_stride;
-
-            for (int y = 0; y < m_ks; y++)
-            {
-                for (int x = 0; x < m_ks; x++)
-                {
-                    //output[i * m_out_y + j].val += mul_diff(&input1[(y + offsetY) * m_n + (x + offsetX)], &input2[y * m_ks + x], &output[i * m_out_y + j]);
-
-                    output[i * m_out_y + j].val = output[i * m_out_y + j].val + input1[(y + offsetY) * m_n + (x + offsetX)].val * input2[y * m_ks + x].val;
-                    input1[(y + offsetY) * m_n + (x + offsetX)].setDiff(input2[y * m_ks + x].val, &output[i * m_out_y + j]);
-                    input2[y * m_ks + x].setDiff(input1[(y + offsetY) * m_n + (x + offsetX)].val, &output[i * m_out_y + j]);
-                }
-            }
-        }
-    }
-}
-
-void Conv::backward()
-{
-    int m = m_m;
-    int n = m_n;
-    int ks = m_ks;
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < m * n; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-
-    for (int i = 0; i < ks * ks; i++)
-    {
-        for (int j = 0; j < w[i].diffs.size(); j++)
-        {
-            w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void Conv::update()
-{
-    int m = m_m;
-    int n = m_n;
-    int ks = m_ks;
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < m * n; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
-    }
-
-    for (int i = 0; i < ks * ks; i++)
-    {
-        w[i].val = w[i].val - lr * w[i].diff;
-        w[i].diff = 0;
-        w[i].diffs.clear();
-    }
-}
-
 class Matmul_t : public opBase
 {
 public:
@@ -680,7 +575,7 @@ void Matmul_t::backward()
             w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
         }
     }
-*/
+    */
 }
 
 void Matmul_t::update()
@@ -702,106 +597,6 @@ void Matmul_t::update()
     {
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
-    }
-}
-
-class Matmul : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    node *input2;
-    int m_m;
-    int m_k;
-    int m_n;
-    Matmul(node *out, node *a, node *b, int m, int k, int n);
-    void forward();
-    void backward();
-    void update();
-};
-
-Matmul::Matmul(node *out, node *a, node *b, int m, int k, int n)
-{
-    output = out;
-    input1 = a;
-    input2 = b;
-    m_m = m;
-    m_k = k;
-    m_n = n;
-}
-
-void Matmul::forward()
-{
-    int m = m_m;
-    int n = m_n;
-    int k = m_k;
-    node *out = output;
-    node *a = input1;
-    node *b = input2;
-
-    for (int i = 0; i < m; i++)
-    {
-        for (int j = 0; j < n; j++)
-        {
-            out[i * n + j].val = 0;
-            for (int q = 0; q < k; q++)
-            {
-                //out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
-                out[i * n + j].val += mul_diff(&a[i * k + q], &b[q * n + j], &out[i * n + j]);
-                /*
-                a[i * k + q].setDiff(b[q * n + j].val, &out[i * n + j]);
-                b[q * n + j].setDiff(a[i * k + q].val, &out[i * n + j]);
-*/
-            }
-        }
-    }
-}
-
-void Matmul::backward()
-{
-    int m = m_m;
-    int n = m_n;
-    int k = m_k;
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < m * k; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-
-    for (int i = 0; i < k * n; i++)
-    {
-        for (int j = 0; j < w[i].diffs.size(); j++)
-        {
-            w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void Matmul::update()
-{
-    int m = m_m;
-    int n = m_n;
-    int k = m_k;
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < m * k; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
-    }
-
-    for (int i = 0; i < k * n; i++)
-    {
-        w[i].val = w[i].val - lr * w[i].diff;
-        w[i].diff = 0;
-        w[i].diffs.clear();
     }
 }
 
@@ -913,7 +708,7 @@ void Add_t::backward()
             w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
         }
     }
-*/
+    */
 }
 
 void Add_t::update()
@@ -932,87 +727,6 @@ void Add_t::update()
     {
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
-    }
-}
-
-class Add : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    node *input2;
-    int length;
-
-    Add(node *out, node *a, node *b, int len);
-    void forward();
-    void backward();
-    void update();
-};
-
-Add::Add(node *out, node *a, node *b, int len)
-{
-    output = out;
-    input1 = a;
-    input2 = b;
-    length = len;
-}
-
-void Add::forward()
-{
-    node *out = output;
-    node *a = input1;
-    node *b = input2;
-
-    for (int i = 0; i < length; i++)
-    {
-        //out[i].val = a[i].val + b[i].val;
-        out[i].val = add_diff(&a[i], &b[i], &out[i]);
-        /*
-        a[i].setDiff(1, &out[i]);
-        b[i].setDiff(1, &out[i]);
-*/
-    }
-}
-
-void Add::backward()
-{
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < w[i].diffs.size(); j++)
-        {
-            w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void Add::update()
-{
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < length; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
-    }
-
-    for (int i = 0; i < length; i++)
-    {
-        w[i].val = w[i].val - lr * w[i].diff;
-        w[i].diff = 0;
-        w[i].diffs.clear();
     }
 }
 
@@ -1071,70 +785,6 @@ void ReLU_t::backward()
 void ReLU_t::update()
 {
     tensor &x = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
-    }
-}
-
-class ReLU : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    int length;
-    ReLU(node *out, node *a, int length);
-    void forward();
-    void backward();
-    void update();
-};
-
-ReLU::ReLU(node *out, node *a, int len)
-{
-    output = out;
-    input1 = a;
-    length = len;
-}
-
-void ReLU::forward()
-{
-    node *out = output;
-    node *a = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        if (a[i].val > 0)
-        {
-            out[i].val = a[i].val;
-            a[i].setDiff(1, &out[i]);
-        }
-        else
-        {
-            out[i].val = 0;
-            a[i].setDiff(0, &out[i]);
-        }
-    }
-}
-
-void ReLU::backward()
-{
-    node *x = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void ReLU::update()
-{
-    node *x = input1;
 
     for (int i = 0; i < length; i++)
     {
@@ -1218,62 +868,6 @@ void Sigmoid_t::update()
     {
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
-    }
-}
-
-class Sigmoid : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    int length;
-    Sigmoid(node *out, node *a, int length);
-    void forward();
-    void backward();
-    void update();
-};
-
-Sigmoid::Sigmoid(node *out, node *a, int len)
-{
-    output = out;
-    input1 = a;
-    length = len;
-}
-
-void Sigmoid::forward()
-{
-    node *out = output;
-    node *a = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        out[i].val = 1.0 / (1.0 + exp(-a[i].val));
-        a[i].setDiff(out[i].val * (1 - out[i].val), &out[i]);
-    }
-}
-
-void Sigmoid::backward()
-{
-    node *x = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void Sigmoid::update()
-{
-    node *x = input1;
-
-    for (int i = 0; i < length; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
     }
 }
 
@@ -1396,96 +990,6 @@ void Loss_MSE_t::update()
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
     }
-}
-
-class Loss_MSE : public opBase
-{
-public:
-    node *output;
-    node *input1;
-    node *input2;
-    int length;
-
-    Loss_MSE(node *out, node *a, node *b, int len);
-    void forward();
-    void backward();
-    void update();
-};
-
-Loss_MSE::Loss_MSE(node *out, node *a, node *b, int len)
-{
-    output = out;
-    input1 = a;
-    input2 = b;
-    length = len;
-}
-
-void Loss_MSE::forward()
-{
-    node *loss = output;
-    node *src = input1;
-    node *dest = input2;
-    int m = length;
-
-    float sum = 0;
-
-    for (int i = 0; i < m; i++)
-    {
-        sum += pow(src[i].val - dest[i].val, 2);
-        // https://zs.symbolab.com/solver/partial-derivative-calculator/%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20x%7D%5Cleft(%5Cfrac%7B1%7D%7B2%7D%5Cleft(x-y%5Cright)%5E%7B2%7D%5Cright)
-        // ∂/∂x = x - y, ∂/∂y = -x + y
-        src[i].setDiff(src[i].val - dest[i].val, loss);
-        dest[i].setDiff(-src[i].val + dest[i].val, loss);
-    }
-
-    loss->val = sum / (2 * m);
-    loss->diff = 1;
-    loss->setDiff(1, NULL);
-}
-
-void Loss_MSE::backward()
-{
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < x[i].diffs.size(); j++)
-        {
-            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
-        }
-    }
-
-    for (int i = 0; i < length; i++)
-    {
-        for (int j = 0; j < w[i].diffs.size(); j++)
-        {
-            w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
-        }
-    }
-}
-
-void Loss_MSE::update()
-{
-    node *x = input1;
-    node *w = input2;
-
-    for (int i = 0; i < length; i++)
-    {
-        x[i].val = x[i].val - lr * x[i].diff;
-        x[i].diff = 0;
-        x[i].diffs.clear();
-    }
-
-    for (int i = 0; i < length; i++)
-    {
-        w[i].val = w[i].val - lr * w[i].diff;
-        w[i].diff = 0;
-        w[i].diffs.clear();
-    }
-
-    output->diff = 0;
-    output->diffs.clear();
 }
 
 // [1 * 3 * 2]
