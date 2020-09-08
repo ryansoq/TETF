@@ -1798,14 +1798,12 @@ tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_LOSE_MSE(Net &net, tensor &in_tensor, int length)
+void W_LOSE_MSE(Net &net, tensor &in_tensor, tensor &ans)
 {
     std::vector<int> shape;
-    tensor *out_tensor = new tensor(shape = {length});
     tensor *lose = new tensor(shape = {1});
-    Loss_MSE_t *lose_mse = new Loss_MSE_t(*lose, in_tensor, *out_tensor, length);
+    Loss_MSE_t *lose_mse = new Loss_MSE_t(*lose, in_tensor, ans, ans.data.size());
     net.AddLayer(lose_mse);
-    return *out_tensor;
 }
 
 int main()
@@ -1876,7 +1874,7 @@ int main()
     //tensor sig2(shape = {10});
     //tensor sig_out2(shape = {10});
 
-    //tensor ans(shape = {10});
+    tensor ans(shape = {10});
     //tensor loss(shape = {1});
     //Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
     //Conv_t conv_1(x, cx, cw1, 1, 28, 28, 1, 1, 3, 3, 28, 28);
@@ -1902,14 +1900,15 @@ int main()
     Net net;
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
-    tensor &x = W_CONV(net, cx, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 1, out_ch = 3, out_dim = 28);
+    tensor &x = W_CONV(net, cx, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, m = 1, k = 768, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
     tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, len = 10);
     tensor &sig_out2 = W_SIGMOID(net, sig2, len = 10);
-    tensor &ans = W_LOSE_MSE(net, sig_out2, len = 10);
+
+    W_LOSE_MSE(net, sig_out2, ans);
 
     int Correct = 0;
     int Error = 0;
@@ -1917,7 +1916,7 @@ int main()
     int test_runs_count = 1000;
     int epoch = 160;
     int batch = 1;
-    float Acc_ok = 95.0;
+    float Acc_ok = 99.0;
     float Accuracy;
 
     for (int e = 0; e < epoch; e++)
