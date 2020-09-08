@@ -320,7 +320,7 @@ public:
     }
 };
 
-class Conv_t : public opBase
+class Conv : public opBase
 {
 public:
     tensor *output;
@@ -335,13 +335,13 @@ public:
     int m_out_x;
     int m_out_y;
     int m_pad;
-    Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
+    Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
     void forward();
     void backward();
     void update();
 };
 
-Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y)
+Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y)
 {
     output = &out;
     input1 = &a;
@@ -357,7 +357,7 @@ Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int st
     m_out_y = out_y;
 }
 
-void Conv_t::forward()
+void Conv::forward()
 {
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
@@ -399,7 +399,7 @@ void Conv_t::forward()
     }
 }
 
-void Conv_t::backward()
+void Conv::backward()
 {
     int c = m_c;
     int m = m_m;
@@ -429,7 +429,7 @@ void Conv_t::backward()
     //printf("\n");
 }
 
-void Conv_t::update()
+void Conv::update()
 {
     int c = m_c;
     int m = m_m;
@@ -453,7 +453,7 @@ void Conv_t::update()
     }
 }
 
-class Matmul_t : public opBase
+class Matmul : public opBase
 {
 public:
     tensor *output;
@@ -462,13 +462,13 @@ public:
     int m_m;
     int m_k;
     int m_n;
-    Matmul_t(tensor &out, tensor &a, tensor &b, int m, int k, int n);
+    Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n);
     void forward();
     void backward();
     void update();
 };
 
-Matmul_t::Matmul_t(tensor &out, tensor &a, tensor &b, int m, int k, int n)
+Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
 {
     output = &out;
     input1 = &a;
@@ -478,7 +478,7 @@ Matmul_t::Matmul_t(tensor &out, tensor &a, tensor &b, int m, int k, int n)
     m_n = n;
 }
 
-void Matmul_t::forward()
+void Matmul::forward()
 {
     int m = m_m;
     int n = m_n;
@@ -532,7 +532,7 @@ void Matmul_t::forward()
     }
 }
 
-void Matmul_t::backward()
+void Matmul::backward()
 {
     int m = m_m;
     int n = m_n;
@@ -578,7 +578,7 @@ void Matmul_t::backward()
     */
 }
 
-void Matmul_t::update()
+void Matmul::update()
 {
     int m = m_m;
     int n = m_n;
@@ -615,7 +615,7 @@ void node::printDiff(void){
     */
 };
 
-class Add_t : public opBase
+class Add : public opBase
 {
 public:
     tensor *output;
@@ -623,13 +623,13 @@ public:
     tensor *input2;
     int length;
 
-    Add_t(tensor &out, tensor &a, tensor &b, int len);
+    Add(tensor &out, tensor &a, tensor &b, int len);
     void forward();
     void backward();
     void update();
 };
 
-Add_t::Add_t(tensor &out, tensor &a, tensor &b, int len)
+Add::Add(tensor &out, tensor &a, tensor &b, int len)
 {
     output = &out;
     input1 = &a;
@@ -637,7 +637,7 @@ Add_t::Add_t(tensor &out, tensor &a, tensor &b, int len)
     length = len;
 }
 
-void Add_t::forward()
+void Add::forward()
 {
     tensor &out = *output;
     tensor &a = *input1;
@@ -668,7 +668,7 @@ void Add_t::forward()
     }
 }
 
-void Add_t::backward()
+void Add::backward()
 {
     tensor &x = *input1;
     tensor &w = *input2;
@@ -711,7 +711,7 @@ void Add_t::backward()
     */
 }
 
-void Add_t::update()
+void Add::update()
 {
     tensor &x = *input1;
     tensor &w = *input2;
@@ -730,26 +730,26 @@ void Add_t::update()
     }
 }
 
-class ReLU_t : public opBase
+class ReLU : public opBase
 {
 public:
     tensor output;
     tensor input1;
     int length;
-    ReLU_t(tensor &out, tensor &a, int length);
+    ReLU(tensor &out, tensor &a, int length);
     void forward();
     void backward();
     void update();
 };
 
-ReLU_t::ReLU_t(tensor &out, tensor &a, int len)
+ReLU::ReLU(tensor &out, tensor &a, int len)
 {
     output = out;
     input1 = a;
     length = len;
 }
 
-void ReLU_t::forward()
+void ReLU::forward()
 {
     tensor &out = output;
     tensor &a = input1;
@@ -769,7 +769,7 @@ void ReLU_t::forward()
     }
 }
 
-void ReLU_t::backward()
+void ReLU::backward()
 {
     tensor &x = input1;
 
@@ -782,7 +782,7 @@ void ReLU_t::backward()
     }
 }
 
-void ReLU_t::update()
+void ReLU::update()
 {
     tensor &x = input1;
 
@@ -794,26 +794,26 @@ void ReLU_t::update()
     }
 }
 
-class Sigmoid_t : public opBase
+class Sigmoid : public opBase
 {
 public:
     tensor *output;
     tensor *input1;
     int length;
-    Sigmoid_t(tensor &out, tensor &a, int length);
+    Sigmoid(tensor &out, tensor &a, int length);
     void forward();
     void backward();
     void update();
 };
 
-Sigmoid_t::Sigmoid_t(tensor &out, tensor &a, int len)
+Sigmoid::Sigmoid(tensor &out, tensor &a, int len)
 {
     output = &out;
     input1 = &a;
     length = len;
 }
 
-void Sigmoid_t::forward()
+void Sigmoid::forward()
 {
     tensor &out = *output;
     tensor &a = *input1;
@@ -836,7 +836,7 @@ void Sigmoid_t::forward()
     }
 }
 
-void Sigmoid_t::backward()
+void Sigmoid::backward()
 {
     tensor &x = *input1;
 
@@ -860,7 +860,7 @@ void Sigmoid_t::backward()
     */
 }
 
-void Sigmoid_t::update()
+void Sigmoid::update()
 {
     tensor &x = *input1;
 
@@ -871,7 +871,7 @@ void Sigmoid_t::update()
     }
 }
 
-class Loss_MSE_t : public opBase
+class Loss_MSE : public opBase
 {
 public:
     tensor *output;
@@ -879,13 +879,13 @@ public:
     tensor *input2;
     int length;
 
-    Loss_MSE_t(tensor &out, tensor &a, tensor &b, int len);
+    Loss_MSE(tensor &out, tensor &a, tensor &b, int len);
     void forward();
     void backward();
     void update();
 };
 
-Loss_MSE_t::Loss_MSE_t(tensor &out, tensor &a, tensor &b, int len)
+Loss_MSE::Loss_MSE(tensor &out, tensor &a, tensor &b, int len)
 {
     output = &out;
     input1 = &a;
@@ -893,7 +893,7 @@ Loss_MSE_t::Loss_MSE_t(tensor &out, tensor &a, tensor &b, int len)
     length = len;
 }
 
-void Loss_MSE_t::forward()
+void Loss_MSE::forward()
 {
     tensor &loss = *output;
     tensor &src = *input1;
@@ -931,7 +931,7 @@ void Loss_MSE_t::forward()
     //loss[0].setDiff(1, NULL);
 }
 
-void Loss_MSE_t::backward()
+void Loss_MSE::backward()
 {
     tensor &x = *input1;
     tensor &w = *input2;
@@ -974,7 +974,7 @@ void Loss_MSE_t::backward()
     */
 }
 
-void Loss_MSE_t::update()
+void Loss_MSE::update()
 {
     tensor &x = *input1;
     tensor &w = *input2;
@@ -1011,20 +1011,20 @@ void matmul(node *out, node *a, node *b, int m, int k, int n)
     }
 }
 
-class External_t : public opBase
+class External : public opBase
 {
 public:
     tensor *output;
     tensor keep;
     std::vector<int> shape;
     int length;
-    External_t(tensor &out, std::vector<int> shape_);
+    External(tensor &out, std::vector<int> shape_);
     void forward();
     void backward();
     void update();
 };
 
-External_t::External_t(tensor &out, std::vector<int> shape_)
+External::External(tensor &out, std::vector<int> shape_)
 {
     tensor tmp(shape_);
     shape = shape_;
@@ -1041,17 +1041,17 @@ External_t::External_t(tensor &out, std::vector<int> shape_)
     output = &out; //keep
 }
 
-void External_t::forward()
+void External::forward()
 {
     //...
 }
 
-void External_t::backward()
+void External::backward()
 {
     //...
 }
 
-void External_t::update()
+void External::update()
 {
     //...
 }
@@ -1154,7 +1154,7 @@ tensor &W_CONV(Net &net, tensor &in_tensor, int in_ch, int in_dim, int stride, i
     std::vector<int> shape;
     tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
     tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
-    Conv_t *conv = new Conv_t(*out_tensor, in_tensor, *w, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
+    Conv *conv = new Conv(*out_tensor, in_tensor, *w, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
     return *out_tensor;
 }
@@ -1166,7 +1166,7 @@ tensor &W_MATMUL(Net &net, tensor &mk, int m, int k, int n)
     mk.shape = {m, k};
     tensor *kn = new tensor(shape = {k, n});
     tensor *out_tensor = new tensor(shape = {m, n});
-    Matmul_t *matmul = new Matmul_t(*out_tensor, mk, *kn, m, k, n);
+    Matmul *matmul = new Matmul(*out_tensor, mk, *kn, m, k, n);
     net.AddLayer(matmul);
     return *out_tensor;
 }
@@ -1176,7 +1176,7 @@ tensor &W_ADD(Net &net, tensor &in_tensor, int length)
     std::vector<int> shape;
     tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Add_t *add = new Add_t(*out_tensor, in_tensor, *b, length);
+    Add *add = new Add(*out_tensor, in_tensor, *b, length);
     net.AddLayer(add);
     return *out_tensor;
 }
@@ -1185,7 +1185,7 @@ tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
 {
     std::vector<int> shape;
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Sigmoid_t *sigmoid = new Sigmoid_t(*out_tensor, in_tensor, length);
+    Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, length);
     net.AddLayer(sigmoid);
     return *out_tensor;
 }
@@ -1194,7 +1194,7 @@ void W_LOSE_MSE(Net &net, tensor &in_tensor, tensor &ans)
 {
     std::vector<int> shape;
     tensor *lose = new tensor(shape = {1});
-    Loss_MSE_t *lose_mse = new Loss_MSE_t(*lose, in_tensor, ans, ans.data.size());
+    Loss_MSE *lose_mse = new Loss_MSE(*lose, in_tensor, ans, ans.data.size());
     net.AddLayer(lose_mse);
 }
 
