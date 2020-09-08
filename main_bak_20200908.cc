@@ -79,9 +79,19 @@ public:
 
         for (int i = 0; i < ndim; i++)
             shape_size *= shape[i];
-
+        /*
+        data = (node *)malloc(sizeof(node) * shape_size);
+*/
         data.resize(shape_size);
+        /*
+        data = new node[shape_size];
 
+        if (data == nullptr)
+        {
+            printf("MEM error ... \n");
+            return;
+        }
+*/
         srand((int)time(0) + rand());
         for (int i = 0; i < shape_size; i++)
             data[i].val = rand() % 1000 * 0.001 - 0.5;
@@ -89,6 +99,10 @@ public:
 
     ~tensor()
     {
+        /*
+        if (data != 0)
+            delete [] data;
+        */
     }
 
     node &operator[](std::size_t idx)
@@ -97,7 +111,6 @@ public:
     }
 };
 
-// Recursive function
 float get_diff(node *src, node *dst)
 {
     if (src == dst)
@@ -359,6 +372,7 @@ Conv_t::Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int st
 
 void Conv_t::forward()
 {
+
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
     const uint16_t out_tensor_ch = m_out_c;
@@ -368,7 +382,7 @@ void Conv_t::forward()
     const uint16_t out_tensor_dim = m_out_x;
     uint16_t i, j, k, l, m, n;
     long in_row, in_col;
-    //NCHW
+
     for (i = 0; i < out_tensor_ch; i++)
     {
         for (j = 0; j < out_tensor_dim; j++)
@@ -397,6 +411,35 @@ void Conv_t::forward()
             }
         }
     }
+    /*
+    for (int i = 0; i < m_out_c; i++) //2
+    {
+        for (int j = 0; j < m_out_y; j++) //1
+        {
+            for (int k = 0; i < m_out_x; k++) //2
+            {
+                //--------------------
+                conv_out = 0;
+                for (int m = 0; m < m_ks; m++)
+                {
+                    for (int n = 0; n < m_ks; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - pad;
+                        in_col = stride * k + n - pad;
+                        if (in_row >= 0 && in_col >= 0 && in_row < m_out_x && in_col < m_out_y)
+                        {
+                            for (l = 0; l < in_tensor_ch; l++)
+                            {
+                                mul_acc(&(*output)[i * m_out_y + j], &(*input1)[(in_col) * m_m + (in_row)], &(*input2)[m * m_ks + n]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+*/
 }
 
 void Conv_t::backward()
@@ -1207,7 +1250,7 @@ void Sigmoid_t::backward()
             x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
         }
     }
-    */
+ */
 }
 
 void Sigmoid_t::update()
@@ -1377,7 +1420,7 @@ void Loss_MSE_t::backward()
             w[i].diff += w[i].diffs[j].first * w[i].diffs[j].second->diff;
         }
     }
-    */
+*/
 }
 
 void Loss_MSE_t::update()
@@ -1539,6 +1582,20 @@ External_t::External_t(tensor &out, std::vector<int> shape_)
 
 void External_t::forward()
 {
+    //tensor &x = *output;
+    //*output = keep;
+    /*
+    tensor &x = keep;
+    std::cout << "keep[0].val : " << keep[0].val << std::endl;
+    std::cout << "keep[1].val : " << keep[1].val << std::endl;
+    std::cout << "keep[2].val : " << keep[2].val << std::endl;
+    std::cout << "keep[3].val : " << keep[3].val << std::endl;
+    
+
+    x[0].val = 0.4; x[1].val = 0.5; x[2].val = 0.6;
+    x[3].val = 0.7; x[4].val = 0.8; x[5].val = 0.9;
+    x[6].val = 1.0; x[7].val = 1.1; x[8].val = 1.2;
+*/
     //...
 }
 
@@ -1641,10 +1698,65 @@ void Net::print()
         (*choose)->print();
 }
 
-// #######################################
-// # Wrapper function
-// ---------------------------------------
+#if 0
+float Testing(Net &net, int test_runs_count)
+{
+    mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> dataset =
+    mnist::read_dataset<std::vector, std::vector, uint8_t, uint8_t>("./third_party/mnist/");
 
+    std::vector<float> Value;
+    Value.resize(10);
+
+    int test_num = 0;
+    int test_runs= test_runs_count;
+    int test_success_count=0;
+
+    for (unsigned int i = 0; i < dataset.test_images.size(); i++)
+    {
+        for (unsigned int j = 0; j < dataset.test_images[i].size(); j++)
+            x[i].val = ((float)(unsigned int)dataset.training_images[i][j]) / 255;
+
+        //initialize the label
+        int target_value = (unsigned int)dataset.test_labels[i];
+        for (int k = 0; k < 10; k++)
+        {
+            ans[k].val = 0;
+        }
+        ans[target_value].val = 1;
+
+        net.forward();
+
+		//get the ouput and compare with the targe
+		double max_value = -99999;
+		int max_index = 0;
+		for (int k = 0; k < 10; k++)
+        {
+			if (o2[k].val > max_value)
+            {
+				max_value = o2[k].val;
+				max_index = k;
+			}
+		}
+
+        //output == target
+		if (ans[max_index].val == 1)
+        {
+			test_success_count ++;
+		}
+
+		test_num ++;
+
+		if ((int)test_num % test_runs_count == 0)
+            return (float)test_success_count / (float)test_runs_count * 100;
+
+		if (test_num>=test_runs) break;
+    }
+    return (float)test_success_count / (float)test_runs_count * 100;
+}
+#endif
+
+// Wrapper
+// Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
 tensor &W_CONV(Net &net, tensor &in_tensor, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     std::vector<int> shape;
@@ -1654,7 +1766,7 @@ tensor &W_CONV(Net &net, tensor &in_tensor, int in_ch, int in_dim, int stride, i
     net.AddLayer(conv);
     return *out_tensor;
 }
-// [m, k] * [k, n] -> [m, n]
+// m*k k*n -> m*n
 tensor &W_MATMUL(Net &net, tensor &mk, int m, int k, int n)
 {
     std::vector<int> shape;
@@ -1696,10 +1808,8 @@ void W_LOSE_MSE(Net &net, tensor &in_tensor, tensor &ans)
 
 int main()
 {
-    // #######################################
-    // # MNIST data informatiom
-    // ---------------------------------------
 
+#if 1
     mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> dataset =
         mnist::read_dataset<std::vector, std::vector, uint8_t, uint8_t>("./third_party/mnist/");
     std::cout << "Nbr of training images = " << dataset.training_images.size() << std::endl;
@@ -1708,36 +1818,97 @@ int main()
     std::cout << "Nbr of test labels = " << dataset.test_labels.size() << std::endl;
     std::cout << "----------------------" << std::endl;
 
-    // #######################################
-    // # Neural Networks (NN) model create
-    // # Tensor input, answer
-    // # input -> NN operations(conv, matmul, add, sigmoid, ...) -> lose function(output, answer)
-    // ---------------------------------------
+    std::vector<int> shape;
+    /*
+    tensor x(shape = {1, 784});
+    tensor w1(shape = {784, 100});
+    tensor o1(shape = {100});
+    tensor b1(shape = {100});
+    tensor sig1(shape = {100});
+    tensor sig_out1(shape = {100});
 
+    tensor w2(shape = {100, 10});
+    tensor o2(shape = {10});    
+    tensor b2(shape = {10});
+    tensor sig2(shape = {10});
+    tensor sig_out2(shape = {10});
+
+    tensor ans(shape = {10});
+    tensor loss(shape = {1});
+ 
+
+    Matmul_t mat_1(o1, x, w1, 1, 784, 100);
+    Add_t add_1(sig1, o1, b1, 100);
+    Sigmoid_t sig_1(sig_out1, sig1, 100);
+
+    Matmul_t mat_2(o2, sig_out1, w2, 1, 100, 10);
+    Add_t add_2(sig2, o2, b2, 10);
+    Sigmoid_t sig_2(sig_out2, sig2, 10);
+
+    Loss_MSE_t lose_mse_t(loss, sig_out2, ans, 10);
+    //-----------------------------------------------------
+    Net net;
+    net.AddLayer(&mat_1);
+    net.AddLayer(&add_1);
+    net.AddLayer(&sig_1);
+
+    net.AddLayer(&mat_2);
+    net.AddLayer(&add_2);
+    net.AddLayer(&sig_2);
+
+    net.AddLayer(&lose_mse_t);
+*/
+    tensor cx(shape = {1, 28, 28});
+    //tensor cw1(shape = {3, 3, 3});
+
+    //tensor x(shape = {1, 784});
+    //tensor w1(shape = {784, 100});
+    //tensor o1(shape = {100});
+    //tensor b1(shape = {100});
+    //tensor sig1(shape = {100});
+    //tensor sig_out1(shape = {100});
+
+    //tensor w2(shape = {100, 10});
+    //tensor o2(shape = {10});
+    //tensor b2(shape = {10});
+    //tensor sig2(shape = {10});
+    //tensor sig_out2(shape = {10});
+
+    tensor ans(shape = {10});
+    //tensor loss(shape = {1});
+    //Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
+    //Conv_t conv_1(x, cx, cw1, 1, 28, 28, 1, 1, 3, 3, 28, 28);
+    //Matmul_t mat_1(o1, x, w1, 1, 784, 100);
+    //Add_t add_1(sig1, o1, b1, 100);
+    //Sigmoid_t sig_1(sig_out1, sig1, 100);
+
+    //Matmul_t mat_2(o2, sig_out1, w2, 1, 100, 10);
+    //Add_t add_2(sig2, o2, b2, 10);
+    //Sigmoid_t sig_2(sig_out2, sig2, 10);
+
+    //Loss_MSE_t lose_mse_t(loss, sig_out2, ans, 10);
+    //net.AddLayer(&conv_1);
+    //net.AddLayer(&mat_1);
+    //net.AddLayer(&add_1);
+    //net.AddLayer(&sig_1);
+    //net.AddLayer(&mat_2);
+    //net.AddLayer(&add_2);
+    //net.AddLayer(&sig_2);
+    //net.AddLayer(&lose_mse_t);
+
+    //-----------------------------------------------------
     Net net;
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
-    std::vector<int> shape;
-    tensor input(shape = {1, 28, 28});
-    tensor answer(shape = {10});
-
-    tensor &x = W_CONV(net, input, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &x = W_CONV(net, cx, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, m = 1, k = 768, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
     tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, len = 10);
-    tensor &output = W_SIGMOID(net, sig2, len = 10);
+    tensor &sig_out2 = W_SIGMOID(net, sig2, len = 10);
 
-    W_LOSE_MSE(net, output, answer);
-
-    // #######################################
-    // # Training site
-    // # set input, answer value
-    // # net forward  ->
-    // #     backward <-
-    // #     update
-    // ---------------------------------------
+    W_LOSE_MSE(net, sig_out2, ans);
 
     int Correct = 0;
     int Error = 0;
@@ -1753,14 +1924,14 @@ int main()
         for (unsigned int i = 0; i < dataset.training_images.size(); i++)
         {
             for (unsigned int j = 0; j < dataset.training_images[i].size(); j++)
-                input[j].val = ((float)(unsigned int)dataset.training_images[i][j]) / 255;
+                cx[j].val = ((float)(unsigned int)dataset.training_images[i][j]) / 255;
 
             int target_value = (unsigned int)dataset.training_labels[i];
             for (int k = 0; k < 10; k++)
             {
-                answer[k].val = 0;
+                ans[k].val = 0;
             }
-            answer[target_value].val = 1;
+            ans[target_value].val = 1;
 
             net.forward();
 
@@ -1768,9 +1939,9 @@ int main()
             int max_index = 0;
             for (int k = 0; k < 10; k++)
             {
-                if (output[k].val > max_value)
+                if (sig_out2[k].val > max_value)
                 {
-                    max_value = output[k].val;
+                    max_value = sig_out2[k].val;
                     max_index = k;
                 }
             }
@@ -1795,4 +1966,5 @@ int main()
     }
 
     return 0;
+#endif
 }
