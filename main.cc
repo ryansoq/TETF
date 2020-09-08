@@ -1755,6 +1755,59 @@ float Testing(Net &net, int test_runs_count)
 }
 #endif
 
+// Wrapper
+// Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
+tensor &W_CONV(Net &net, tensor &in_tensor, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+{
+    std::vector<int> shape;
+    tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
+    tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
+    Conv_t *conv = new Conv_t(*out_tensor, in_tensor, *w, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
+    net.AddLayer(conv);
+    return *out_tensor;
+}
+// m*k k*n -> m*n
+tensor &W_MATMUL(Net &net, tensor &mk, int m, int k, int n)
+{
+    std::vector<int> shape;
+    mk.shape.resize(2);
+    mk.shape = {m, k};
+    tensor *kn = new tensor(shape = {k, n});
+    tensor *out_tensor = new tensor(shape = {m, n});
+    Matmul_t *matmul = new Matmul_t(*out_tensor, mk, *kn, m, k, n);
+    net.AddLayer(matmul);
+    return *out_tensor;
+}
+
+tensor &W_ADD(Net &net, tensor &in_tensor, int length)
+{
+    std::vector<int> shape;
+    tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    Add_t *add = new Add_t(*out_tensor, in_tensor, *b, length);
+    net.AddLayer(add);
+    return *out_tensor;
+}
+
+tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
+{
+    std::vector<int> shape;
+    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    Sigmoid_t *sigmoid = new Sigmoid_t(*out_tensor, in_tensor, length);
+    net.AddLayer(sigmoid);
+    return *out_tensor;
+}
+
+tensor &W_LOSE_MSE(Net &net, tensor &in_tensor, int length)
+{
+    std::vector<int> shape;
+    tensor *out_tensor = new tensor(shape = {length});
+    tensor *lose = new tensor(shape = {1});
+    Loss_MSE_t *lose_mse = new Loss_MSE_t(*lose, in_tensor, *out_tensor, length);
+    net.AddLayer(lose_mse);
+    return *out_tensor;
+}
+
 int main()
 {
 
@@ -1808,46 +1861,55 @@ int main()
     net.AddLayer(&lose_mse_t);
 */
     tensor cx(shape = {1, 28, 28});
-    tensor cw1(shape = {3, 3, 3});
+    //tensor cw1(shape = {3, 3, 3});
 
-    tensor x(shape = {1, 784});
-    tensor w1(shape = {784, 100});
-    tensor o1(shape = {100});
-    tensor b1(shape = {100});
-    tensor sig1(shape = {100});
-    tensor sig_out1(shape = {100});
+    //tensor x(shape = {1, 784});
+    //tensor w1(shape = {784, 100});
+    //tensor o1(shape = {100});
+    //tensor b1(shape = {100});
+    //tensor sig1(shape = {100});
+    //tensor sig_out1(shape = {100});
 
-    tensor w2(shape = {100, 10});
-    tensor o2(shape = {10});
-    tensor b2(shape = {10});
-    tensor sig2(shape = {10});
-    tensor sig_out2(shape = {10});
+    //tensor w2(shape = {100, 10});
+    //tensor o2(shape = {10});
+    //tensor b2(shape = {10});
+    //tensor sig2(shape = {10});
+    //tensor sig_out2(shape = {10});
 
-    tensor ans(shape = {10});
-    tensor loss(shape = {1});
+    //tensor ans(shape = {10});
+    //tensor loss(shape = {1});
     //Conv_t(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y);
-    Conv_t conv_1(x, cx, cw1, 1, 28, 28, 1, 1, 3, 3, 28, 28);
-    Matmul_t mat_1(o1, x, w1, 1, 784, 100);
-    Add_t add_1(sig1, o1, b1, 100);
-    Sigmoid_t sig_1(sig_out1, sig1, 100);
+    //Conv_t conv_1(x, cx, cw1, 1, 28, 28, 1, 1, 3, 3, 28, 28);
+    //Matmul_t mat_1(o1, x, w1, 1, 784, 100);
+    //Add_t add_1(sig1, o1, b1, 100);
+    //Sigmoid_t sig_1(sig_out1, sig1, 100);
 
-    Matmul_t mat_2(o2, sig_out1, w2, 1, 100, 10);
-    Add_t add_2(sig2, o2, b2, 10);
-    Sigmoid_t sig_2(sig_out2, sig2, 10);
+    //Matmul_t mat_2(o2, sig_out1, w2, 1, 100, 10);
+    //Add_t add_2(sig2, o2, b2, 10);
+    //Sigmoid_t sig_2(sig_out2, sig2, 10);
 
-    Loss_MSE_t lose_mse_t(loss, sig_out2, ans, 10);
+    //Loss_MSE_t lose_mse_t(loss, sig_out2, ans, 10);
+    //net.AddLayer(&conv_1);
+    //net.AddLayer(&mat_1);
+    //net.AddLayer(&add_1);
+    //net.AddLayer(&sig_1);
+    //net.AddLayer(&mat_2);
+    //net.AddLayer(&add_2);
+    //net.AddLayer(&sig_2);
+    //net.AddLayer(&lose_mse_t);
+
     //-----------------------------------------------------
     Net net;
-    net.AddLayer(&conv_1);
-    net.AddLayer(&mat_1);
-    net.AddLayer(&add_1);
-    net.AddLayer(&sig_1);
+    int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
-    net.AddLayer(&mat_2);
-    net.AddLayer(&add_2);
-    net.AddLayer(&sig_2);
-
-    net.AddLayer(&lose_mse_t);
+    tensor &x = W_CONV(net, cx, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 1, out_ch = 3, out_dim = 28);
+    tensor &o1 = W_MATMUL(net, x, m = 1, k = 768, n = 100);
+    tensor &sig1 = W_ADD(net, o1, len = 100);
+    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
+    tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
+    tensor &sig2 = W_ADD(net, o2, len = 10);
+    tensor &sig_out2 = W_SIGMOID(net, sig2, len = 10);
+    tensor &ans = W_LOSE_MSE(net, sig_out2, len = 10);
 
     int Correct = 0;
     int Error = 0;
@@ -1855,7 +1917,7 @@ int main()
     int test_runs_count = 1000;
     int epoch = 160;
     int batch = 1;
-    float Acc_ok = 99.0;
+    float Acc_ok = 95.0;
     float Accuracy;
 
     for (int e = 0; e < epoch; e++)
@@ -1873,21 +1935,7 @@ int main()
             ans[target_value].val = 1;
 
             net.forward();
-            /*
-            std::cout << "ans : " << target_value << std::endl;
-            std::cout << "sig_out[0].val : " << sig_out2[0].val << std::endl;
-            std::cout << "sig_out[1].val : " << sig_out2[1].val << std::endl;
-            std::cout << "sig_out[2].val : " << sig_out2[2].val << std::endl;
-            std::cout << "sig_out[3].val : " << sig_out2[3].val << std::endl;
-            std::cout << "sig_out[4].val : " << sig_out2[4].val << std::endl;
-            std::cout << "sig_out[5].val : " << sig_out2[5].val << std::endl;
-            std::cout << "sig_out[6].val : " << sig_out2[6].val << std::endl;
-            std::cout << "sig_out[7].val : " << sig_out2[7].val << std::endl;
-            std::cout << "sig_out[8].val : " << sig_out2[8].val << std::endl;
-            std::cout << "sig_out[9].val : " << sig_out2[9].val << std::endl;
-            std::cout << "loss : " << loss[0].val << std::endl;
-            */
-            // tesing
+
             double max_value = -99999;
             int max_index = 0;
             for (int k = 0; k < 10; k++)
@@ -1900,19 +1948,13 @@ int main()
             }
 
             if (max_index == target_value)
-            {
-                //std::cout << "Correct !" << std::endl;
                 Correct++;
-            }
             else
-            {
-                //std::cout << "Error !" << std::endl;
                 Error++;
-            }
+
             net.backward();
             net.update();
 
-            //std::cout << "Correct : " << Correct << " , " << "Error : " << Error << " , Rate : " << (float)Correct / ((float)Correct + (float)Error)<< std::endl;
             test_num++;
             if ((int)test_num % test_runs_count == 0)
             {
