@@ -1,4 +1,4 @@
-# TF
-Tiny Training Framework, currently in the experimental stage.
+# TETF
+Tiny Embedded Training Framework, currently in the experimental stage.
 
-![image](https://github.com/ryansoq/TF/blob/master/Training%20result.png?raw=true)
+![image](https://github.com/ryansoq/TETF/blob/master/Training%20result.png?raw=true)
