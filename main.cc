@@ -8,7 +8,7 @@
 #include <assert.h>
 
 // Net class
-float lr = 0.1;
+float lr = 0.001;
 
 class node
 {
@@ -1348,10 +1348,10 @@ int main()
     tensor &x = W_CONV(net, input, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
-    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
+    tensor &sig_out1 = W_LEAKY_RELU(net, sig1, len = 100);
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, len = 10);
-    tensor &output = W_SIGMOID(net, sig2, len = 10);
+    tensor &output = W_RELU(net, sig2, len = 10);
 
     W_LOSE_MSE(net, output, answer);
 
@@ -1411,7 +1411,7 @@ int main()
             if ((int)test_num % test_runs_count == 0)
             {
                 Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
-                std::cout << "[Epoch : " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
+                std::cout << "[Epoch : " << e << " / " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
             }
         }
         if (Accuracy >= Acc_ok)
