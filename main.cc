@@ -817,6 +817,74 @@ void ReLU::update()
     }
 }
 
+class Leaky_ReLU : public opBase
+{
+public:
+    tensor *output;
+    tensor *input1;
+    int length;
+    Leaky_ReLU(tensor &out, tensor &a, int length);
+    void forward();
+    void backward();
+    void update();
+};
+
+Leaky_ReLU::Leaky_ReLU(tensor &out, tensor &a, int len)
+{
+    output = &out;
+    input1 = &a;
+    length = len;
+}
+
+void Leaky_ReLU::forward()
+{
+    tensor &out = *output;
+    tensor &a = *input1;
+
+    for (int i = 0; i < length; i++)
+    {
+        if (a[i].val > 0)
+        {
+            out[i].val = a[i].val;
+            a[i].setDiff(1, &out[i]);
+        }
+        else
+        {
+            out[i].val = a[i].val * 0.01;
+            a[i].setDiff(0.01, &out[i]);
+        }
+    }
+}
+
+void Leaky_ReLU::backward()
+{
+    tensor &x = *input1;
+
+    assert(x.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        for (int j = 0; j < x[i].diffs.size(); j++)
+        {
+            x[i].diff += x[i].diffs[j].first * x[i].diffs[j].second->diff;
+        }
+    }
+}
+
+void Leaky_ReLU::update()
+{
+    tensor &x = *input1;
+
+    assert(x.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+}
+
 class Sigmoid : public opBase
 {
 public:
@@ -1230,6 +1298,15 @@ tensor &W_RELU(Net &net, tensor &in_tensor, int length)
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     ReLU *relu = new ReLU(*out_tensor, in_tensor, length);
     net.AddLayer(relu);
+    return *out_tensor;
+}
+
+tensor &W_LEAKY_RELU(Net &net, tensor &in_tensor, int length)
+{
+    std::vector<int> shape;
+    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, length);
+    net.AddLayer(leaky_relu);
     return *out_tensor;
 }
 
