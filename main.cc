@@ -5,6 +5,7 @@
 #include <string>
 #include <list>
 #include <mnist/mnist_reader.hpp>
+#include <assert.h>
 
 // Net class
 float lr = 0.1;
@@ -408,6 +409,9 @@ void Conv::backward()
     tensor &x = *input1;
     tensor &w = *input2;
 
+    assert(x.data.size() == (c * m * n));
+    assert(w.data.size() == (m_out_c * ks * ks));
+
     for (int i = 0; i < c * m * n; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -437,6 +441,9 @@ void Conv::update()
     int ks = m_ks;
     tensor &x = *input1;
     tensor &w = *input2;
+
+    assert(x.data.size() == (c * m * n));
+    assert(w.data.size() == (m_out_c * ks * ks));
 
     for (int i = 0; i < c * m * n; i++)
     {
@@ -540,6 +547,9 @@ void Matmul::backward()
     tensor &x = *input1;
     tensor &w = *input2;
 
+    assert(x.data.size() == (m * k));
+    assert(w.data.size() == (k * n));
+
     for (int i = 0; i < m * k; i++)
     {
         while (!x[i].diffs.empty())
@@ -586,6 +596,9 @@ void Matmul::update()
     tensor &x = *input1;
     tensor &w = *input2;
     tensor &out = *output;
+
+    assert(x.data.size() == (m * k));
+    assert(w.data.size() == (k * n));
 
     for (int i = 0; i < m * k; i++)
     {
@@ -673,6 +686,9 @@ void Add::backward()
     tensor &x = *input1;
     tensor &w = *input2;
 
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
+
     for (int i = 0; i < length; i++)
     {
         while (!x[i].diffs.empty())
@@ -716,6 +732,9 @@ void Add::update()
     tensor &x = *input1;
     tensor &w = *input2;
     tensor &out = *output;
+
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
 
     for (int i = 0; i < length; i++)
     {
@@ -773,6 +792,8 @@ void ReLU::backward()
 {
     tensor &x = input1;
 
+    assert(x.data.size() == length);
+
     for (int i = 0; i < length; i++)
     {
         for (int j = 0; j < x[i].diffs.size(); j++)
@@ -785,6 +806,8 @@ void ReLU::backward()
 void ReLU::update()
 {
     tensor &x = input1;
+
+    assert(x.data.size() == length);
 
     for (int i = 0; i < length; i++)
     {
@@ -840,6 +863,8 @@ void Sigmoid::backward()
 {
     tensor &x = *input1;
 
+    assert(x.data.size() == length);
+
     for (int i = 0; i < length; i++)
     {
         while (!x[i].diffs.empty())
@@ -863,6 +888,8 @@ void Sigmoid::backward()
 void Sigmoid::update()
 {
     tensor &x = *input1;
+
+    assert(x.data.size() == length);
 
     for (int i = 0; i < length; i++)
     {
@@ -936,6 +963,9 @@ void Loss_MSE::backward()
     tensor &x = *input1;
     tensor &w = *input2;
 
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
+
     for (int i = 0; i < length; i++)
     {
         while (!x[i].diffs.empty())
@@ -979,6 +1009,10 @@ void Loss_MSE::update()
     tensor &x = *input1;
     tensor &w = *input2;
     tensor &out = *output;
+
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
+
     for (int i = 0; i < length; i++)
     {
         x[i].val = x[i].val - lr * x[i].diff;
@@ -1226,7 +1260,7 @@ int main()
     tensor answer(shape = {10});
 
     tensor &x = W_CONV(net, input, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = W_MATMUL(net, x, m = 1, k = 768, n = 100);
+    tensor &o1 = W_MATMUL(net, x, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
     tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
