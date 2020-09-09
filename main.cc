@@ -752,8 +752,8 @@ void Add::update()
 class ReLU : public opBase
 {
 public:
-    tensor output;
-    tensor input1;
+    tensor *output;
+    tensor *input1;
     int length;
     ReLU(tensor &out, tensor &a, int length);
     void forward();
@@ -763,15 +763,15 @@ public:
 
 ReLU::ReLU(tensor &out, tensor &a, int len)
 {
-    output = out;
-    input1 = a;
+    output = &out;
+    input1 = &a;
     length = len;
 }
 
 void ReLU::forward()
 {
-    tensor &out = output;
-    tensor &a = input1;
+    tensor &out = *output;
+    tensor &a = *input1;
 
     for (int i = 0; i < length; i++)
     {
@@ -790,7 +790,7 @@ void ReLU::forward()
 
 void ReLU::backward()
 {
-    tensor &x = input1;
+    tensor &x = *input1;
 
     assert(x.data.size() == length);
 
@@ -805,7 +805,7 @@ void ReLU::backward()
 
 void ReLU::update()
 {
-    tensor &x = input1;
+    tensor &x = *input1;
 
     assert(x.data.size() == length);
 
@@ -1221,6 +1221,15 @@ tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, length);
     net.AddLayer(sigmoid);
+    return *out_tensor;
+}
+
+tensor &W_RELU(Net &net, tensor &in_tensor, int length)
+{
+    std::vector<int> shape;
+    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    ReLU *relu = new ReLU(*out_tensor, in_tensor, length);
+    net.AddLayer(relu);
     return *out_tensor;
 }
 
