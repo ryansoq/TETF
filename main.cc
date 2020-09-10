@@ -8,7 +8,7 @@
 #include <assert.h>
 
 // Net class
-float lr = 0.001;
+float lr = 0.01;
 
 class node
 {
@@ -358,6 +358,62 @@ Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride
     m_out_y = out_y;
 }
 
+int conv_HWC(tensor *Im_in,
+                              const uint16_t dim_im_in,
+                              const uint16_t ch_im_in,
+                              tensor *wt,
+                              const uint16_t ch_im_out,
+                              const uint16_t dim_kernel,
+                              const uint16_t padding,
+                              const uint16_t stride,
+                              const uint16_t bias_shift,
+                              const uint16_t out_shift,
+                              tensor *Im_out,
+                              const uint16_t dim_im_out)
+{
+    int i, j, k, l, m, n;
+    int conv_out;
+    int in_row, in_col;
+
+    for (i = 0; i < ch_im_out; i++)
+    {
+        for (j = 0; j < dim_im_out; j++)
+        {
+            for (k = 0; k < dim_im_out; k++)
+            {
+                //conv_out = 0;
+                (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].val = 0.0;
+                for (m = 0; m < dim_kernel; m++)
+                {
+                    for (n = 0; n < dim_kernel; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - padding;
+                        in_col = stride * k + n - padding;
+                        if (in_row >= 0 && in_col >= 0 && in_row < dim_im_in && in_col < dim_im_in)
+                        {
+                            for (l = 0; l < ch_im_in; l++)
+                            {
+                                mul_acc(&(*Im_out)[i + (j * dim_im_out + k) * ch_im_out],
+                                        &(*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l],
+                                        &(*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l]);
+                                /*
+                                conv_out +=
+                                    Im_in[(in_row * dim_im_in + in_col) * ch_im_in +
+                                          l] * wt[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel +
+                                                                                            n) * ch_im_in + l];
+                                */
+                            }
+                        }
+                    }
+                }
+                //Im_out[i + (j * dim_im_out + k) * ch_im_out] = conv_out;
+            }
+        }
+    }
+
+    return 0;
+}
 void Conv::forward()
 {
     const uint16_t in_tensor_dim = m_m;
@@ -369,7 +425,13 @@ void Conv::forward()
     const uint16_t out_tensor_dim = m_out_x;
     uint16_t i, j, k, l, m, n;
     long in_row, in_col;
-    //NCHW
+    // NHWC
+    tensor *Im_in = input1;
+    tensor *wt = input2;
+    tensor *Im_out = output;
+    int ret = conv_HWC(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
+    // NCHW
+    /*
     for (i = 0; i < out_tensor_ch; i++)
     {
         for (j = 0; j < out_tensor_dim; j++)
@@ -398,6 +460,7 @@ void Conv::forward()
             }
         }
     }
+    */
 }
 
 void Conv::backward()
@@ -1342,16 +1405,16 @@ int main()
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
     std::vector<int> shape;
-    tensor input(shape = {1, 28, 28});
+    tensor input(shape = {28, 28, 1});
     tensor answer(shape = {10});
 
     tensor &x = W_CONV(net, input, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
-    tensor &sig_out1 = W_LEAKY_RELU(net, sig1, len = 100);
+    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, len = 10);
-    tensor &output = W_RELU(net, sig2, len = 10);
+    tensor &output = W_SIGMOID(net, sig2, len = 10);
 
     W_LOSE_MSE(net, output, answer);
 
