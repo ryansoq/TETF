@@ -6,9 +6,10 @@
 #include <list>
 #include <mnist/mnist_reader.hpp>
 #include <assert.h>
+#include <iomanip>
 
 // Net class
-float lr = 0.01;
+float lr = 0.1;
 
 class node
 {
@@ -359,17 +360,17 @@ Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride
 }
 
 int conv_HWC(tensor *Im_in,
-                              const uint16_t dim_im_in,
-                              const uint16_t ch_im_in,
-                              tensor *wt,
-                              const uint16_t ch_im_out,
-                              const uint16_t dim_kernel,
-                              const uint16_t padding,
-                              const uint16_t stride,
-                              const uint16_t bias_shift,
-                              const uint16_t out_shift,
-                              tensor *Im_out,
-                              const uint16_t dim_im_out)
+             const uint16_t dim_im_in,
+             const uint16_t ch_im_in,
+             tensor *wt,
+             const uint16_t ch_im_out,
+             const uint16_t dim_kernel,
+             const uint16_t padding,
+             const uint16_t stride,
+             const uint16_t bias_shift,
+             const uint16_t out_shift,
+             tensor *Im_out,
+             const uint16_t dim_im_out)
 {
     int i, j, k, l, m, n;
     int conv_out;
@@ -1373,12 +1374,13 @@ tensor &W_LEAKY_RELU(Net &net, tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-void W_LOSE_MSE(Net &net, tensor &in_tensor, tensor &ans)
+tensor &W_LOSS_MSE(Net &net, tensor &in_tensor, tensor &ans)
 {
     std::vector<int> shape;
-    tensor *lose = new tensor(shape = {1});
-    Loss_MSE *lose_mse = new Loss_MSE(*lose, in_tensor, ans, ans.data.size());
-    net.AddLayer(lose_mse);
+    tensor *loss = new tensor(shape = {1});
+    Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
+    net.AddLayer(loss_mse);
+    return *loss;
 }
 
 int main()
@@ -1408,6 +1410,7 @@ int main()
     tensor input(shape = {28, 28, 1});
     tensor answer(shape = {10});
 
+    // --------- NN model ---------
     tensor &x = W_CONV(net, input, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, len = 100);
@@ -1415,8 +1418,10 @@ int main()
     tensor &o2 = W_MATMUL(net, sig_out1, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, len = 10);
     tensor &output = W_SIGMOID(net, sig2, len = 10);
+    // ----------------------------
 
-    W_LOSE_MSE(net, output, answer);
+    // Mean square error
+    tensor &loss = W_LOSS_MSE(net, output, answer);
 
     // #######################################
     // # Training site
@@ -1474,7 +1479,7 @@ int main()
             if ((int)test_num % test_runs_count == 0)
             {
                 Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
-                std::cout << "[Epoch : " << e << " / " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
+                std::cout << "[Epoch : " << e << " / " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Loss : " << std::setiosflags(std::ios::fixed) << std::setprecision(7) << loss[0].val << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
             }
         }
         if (Accuracy >= Acc_ok)
