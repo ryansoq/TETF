@@ -9,7 +9,16 @@
 #include <iomanip>
 
 // Net class
+float START_QUANTIZATION = 96.0;
+float Accuracy;
 float lr = 0.1;
+
+typedef int8_t q7_t;
+typedef uint8_t u8_t;
+typedef int16_t q15_t;
+typedef uint16_t u16_t;
+typedef int32_t q31_t;
+typedef int64_t q63_t;
 
 class node
 {
@@ -17,15 +26,53 @@ public:
     static int nextID;
     std::string id;
     float val;
+    q7_t q_val;
     float diff;
     std::vector<std::pair<float, node *>> diffs;
 
     node();
+    void f2q(void);
+    void q2f(void);
+    void print_q(void);
     void printDiff(void);
     void setDiff(float dfdx, node *dldf);
 };
 
 int node::nextID = 0;
+
+void node::f2q()
+{
+    if (val >= 0)
+    {
+        if (val * 127 > 127)
+            q_val = 127;
+        else
+            q_val = val * 127;
+    }
+    else
+    {
+        if (val * 128 < -128)
+            q_val = -128;
+        else
+            q_val = val * 128;
+    }
+}
+
+void node::q2f()
+{
+    if (val >= 0)
+        val = (float)q_val / (float)127;
+    else
+        val = (float)q_val / (float)128;
+}
+
+void node::print_q()
+{
+    if (val >= 0)
+        std::cout << (float)q_val / (float)127 << std::endl;
+    else
+        std::cout << (float)q_val / (float)128 << std::endl;
+}
 
 node::node()
 {
@@ -511,6 +558,11 @@ void Conv::update()
 
     for (int i = 0; i < c * m * n; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
@@ -518,6 +570,11 @@ void Conv::update()
 
     for (int i = 0; i < m_out_c * ks * ks; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            w[i].f2q();
+            w[i].q2f();
+        }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
         w[i].diffs.clear();
@@ -666,12 +723,22 @@ void Matmul::update()
 
     for (int i = 0; i < m * k; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
     }
 
     for (int i = 0; i < k * n; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            w[i].f2q();
+            w[i].q2f();
+        }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
     }
@@ -802,12 +869,22 @@ void Add::update()
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
     }
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            w[i].f2q();
+            w[i].q2f();
+        }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
     }
@@ -875,6 +952,11 @@ void ReLU::update()
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
@@ -943,6 +1025,11 @@ void Leaky_ReLU::update()
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
@@ -1025,6 +1112,11 @@ void Sigmoid::update()
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
     }
@@ -1147,12 +1239,22 @@ void Loss_MSE::update()
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
     }
 
     for (int i = 0; i < length; i++)
     {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            w[i].f2q();
+            w[i].q2f();
+        }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
     }
@@ -1386,6 +1488,12 @@ tensor &W_LOSS_MSE(Net &net, tensor &in_tensor, tensor &ans)
 int main()
 {
     // #######################################
+    // # Tesing section
+    // ---------------------------------------
+    // ...
+
+#if 1
+    // #######################################
     // # MNIST data informatiom
     // ---------------------------------------
 
@@ -1438,7 +1546,6 @@ int main()
     int epoch = 160;
     int batch = 1;
     float Acc_ok = 99.0;
-    float Accuracy;
 
     for (int e = 0; e < epoch; e++)
     {
@@ -1485,6 +1592,6 @@ int main()
         if (Accuracy >= Acc_ok)
             break;
     }
-
+#endif
     return 0;
 }
