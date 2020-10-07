@@ -9,7 +9,6 @@
 #include <iomanip>
 #include <f2uc.h>
 
-
 // Weight 93-94%
 #include "weight.inc"
 
@@ -577,7 +576,7 @@ void Conv::update()
 
     assert(x.data.size() == (c * m * n));
     assert(w.data.size() == (m_out_c * ks * ks));
-/*
+    /*
     if (Accuracy > Acc_ok)
     {
         unsigned char *ptr;
@@ -641,6 +640,29 @@ Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
 
 void Matmul::forward()
 {
+#ifdef TYPE2_BACKWARD
+    int m = m_m;
+    int n = m_n;
+    int k = m_k;
+    tensor &out = *output;
+    tensor &a = *input1;
+    tensor &b = *input2;
+    output->ndim = 2;
+    std::vector<int> shape = {m, n};
+    output->shape = shape;
+
+    for (int i = 0; i < m; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            out[i * n + j].val = 0;
+            for (int q = 0; q < k; q++)
+            {
+                out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
+            }
+        }
+    }
+#else
     int m = m_m;
     int n = m_n;
     int k = m_k;
@@ -691,10 +713,36 @@ void Matmul::forward()
             }
         }
     }
+#endif
 }
 
 void Matmul::backward()
 {
+
+#ifdef TYPE2_BACKWARD
+    int m = m_m;
+    int n = m_n;
+    int k = m_k;
+    tensor &out = *output;
+    tensor &a = *input1;
+    tensor &b = *input2;
+    output->ndim = 2;
+    std::vector<int> shape = {m, n};
+    output->shape = shape;
+
+    for (int i = 0; i < m; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            out[i * n + j].val = 0;
+            for (int q = 0; q < k; q++)
+            {
+                a[i * k + q].diff += b[q * n + j].val * out[i * n + j].diff;
+                b[q * n + j].diff += a[i * k + q].val * out[i * n + j].diff;
+            }
+        }
+    }
+#else
     int m = m_m;
     int n = m_n;
     int k = m_k;
@@ -723,6 +771,7 @@ void Matmul::backward()
             w[i].diffs.pop_back();
         }
     }
+#endif
     /*
     for (int i = 0; i < m * k; i++)
     {
@@ -753,7 +802,7 @@ void Matmul::update()
 
     assert(x.data.size() == (m * k));
     assert(w.data.size() == (k * n));
-/*
+    /*
     if (Accuracy > Acc_ok)
     {
         unsigned char *ptr;
@@ -863,7 +912,7 @@ void Add::backward()
 
     assert(x.data.size() == length);
     assert(w.data.size() == length);
-/*
+    /*
     if (Accuracy > Acc_ok)
     {
         unsigned char *ptr;
@@ -1472,7 +1521,7 @@ void Net::print()
 // # Wrapper function
 // ---------------------------------------
 
-tensor &W_CONV(Net &net, tensor &in_tensor, tensor ** weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+tensor &W_CONV(Net &net, tensor &in_tensor, tensor **weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     std::vector<int> shape;
     tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
@@ -1483,7 +1532,7 @@ tensor &W_CONV(Net &net, tensor &in_tensor, tensor ** weight, int in_ch, int in_
     return *out_tensor;
 }
 // [m, k] * [k, n] -> [m, n]
-tensor &W_MATMUL(Net &net, tensor &mk, tensor ** weight, int m, int k, int n)
+tensor &W_MATMUL(Net &net, tensor &mk, tensor **weight, int m, int k, int n)
 {
     std::vector<int> shape;
     mk.shape.resize(2);
@@ -1496,7 +1545,7 @@ tensor &W_MATMUL(Net &net, tensor &mk, tensor ** weight, int m, int k, int n)
     return *out_tensor;
 }
 
-tensor &W_ADD(Net &net, tensor &in_tensor, tensor ** weight, int length)
+tensor &W_ADD(Net &net, tensor &in_tensor, tensor **weight, int length)
 {
     std::vector<int> shape;
     tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
@@ -1577,11 +1626,12 @@ int main()
     std::vector<int> shape;
     tensor input(shape = {28, 28, 1});
     tensor answer(shape = {10});
-    tensor * conv_weight;
-    tensor * matmul_weight;
-    tensor * add_weight;
-    tensor * matmul1_weight;
-    tensor * add1_weight;
+    tensor *conv_weight;
+    tensor *matmul_weight;
+    tensor *add_weight;
+    tensor *matmul1_weight;
+    tensor *add1_weight;
+
     // --------- NN model ---------
     tensor &x = W_CONV(net, input, &conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, &matmul_weight, m = 1, k = 784, n = 100);
@@ -1594,13 +1644,13 @@ int main()
 
     // Mean square error
     tensor &loss = W_LOSS_MSE(net, output, answer);
-
+/*
     conv_weight->load_uc2f(w_conv_weight);
     matmul_weight->load_uc2f(w_matmul_weight);
     add_weight->load_uc2f(w_add_weight);
     matmul1_weight->load_uc2f(w_matmul1_weight);
     add1_weight->load_uc2f(w_add1_weight);
-
+*/
     // #######################################
     // # Training site
     // # set input, answer value
@@ -1648,8 +1698,8 @@ int main()
             else
                 Error++;
 
-            //net.backward();
-            //net.update();
+            net.backward();
+            net.update();
 
             test_num++;
             if ((int)test_num % test_runs_count == 0)
