@@ -15,7 +15,7 @@
 // Net class
 float START_QUANTIZATION = 99.0;
 float Accuracy;
-float lr = 0.001;
+float lr = 0.01;
 float Acc_ok = 99.0;
 int global_num = 0;
 
@@ -1684,26 +1684,26 @@ tensor &W_CONV(Net &net, tensor &in_tensor, tensor &weight, int in_ch, int in_di
     return *out_tensor;
 }
 // [m, k] * [k, n] -> [m, n]
-tensor &W_MATMUL(Net &net, tensor &mk, tensor **weight, int m, int k, int n)
+tensor &W_MATMUL(Net &net, tensor &mk, tensor &kn, int m, int k, int n)
 {
     std::vector<int> shape;
-    mk.shape.resize(2);
-    mk.shape = {m, k};
-    tensor *kn = new tensor(shape = {k, n});
-    *weight = kn;
+    //mk.shape.resize(2);
+    //mk.shape = {m, k};
+    //tensor *kn = new tensor(shape = {k, n});
+    //*weight = kn;
     tensor *out_tensor = new tensor(shape = {m, n});
-    Matmul *matmul = new Matmul(*out_tensor, mk, *kn, m, k, n);
+    Matmul *matmul = new Matmul(*out_tensor, mk, kn, m, k, n);
     net.AddLayer(matmul);
     return *out_tensor;
 }
 
-tensor &W_ADD(Net &net, tensor &in_tensor, tensor **weight, int length)
+tensor &W_ADD(Net &net, tensor &in_tensor, tensor &weight, int length)
 {
     std::vector<int> shape;
-    tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    *weight = b;
+    //tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    //*weight = b;
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Add *add = new Add(*out_tensor, in_tensor, *b, length);
+    Add *add = new Add(*out_tensor, in_tensor, weight, length);
     net.AddLayer(add);
     return *out_tensor;
 }
@@ -1778,29 +1778,35 @@ int main()
     std::vector<int> shape;
     std::string label;
     //tensor input(shape = {28, 28, 1});
-    tensor answer(shape = {10});
+
     //tensor *conv_weight;
-    tensor *matmul_weight;
-    tensor *add_weight;
+    //tensor *matmul_weight;
+    //tensor *add_weight;
     //tensor *conv1_weight;
-    tensor *matmul1_weight;
-    tensor *add1_weight;
+    //tensor *matmul1_weight;
+    //tensor *add1_weight;
 
     // --------- NN model ---------
     tensor &input = W_EXTERNAL(shape = {28, 28, 1});
     tensor &conv_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights");
-    tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = W_MATMUL(net, x, &matmul_weight, m = 1, k = 784, n = 100);
-    tensor &sig1 = W_ADD(net, o1, &add_weight, len = 100);
-    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
+    tensor &matmul_weight = W_VARIABLE(shape = {784, 100}, label = "matmul_weight");
+    tensor &matmul1_weight = W_VARIABLE(shape = {100, 10}, label = "matmul1_weight");
+    tensor &add_weight = W_VARIABLE(shape = {1, 100}, label = "add_weight");
+    tensor &add1_weight = W_VARIABLE(shape = {1, 10}, label = "add1_weight");
     tensor &conv1_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights1");
+
+    tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &o1 = W_MATMUL(net, x, matmul_weight, m = 1, k = 784, n = 100);
+    tensor &sig1 = W_ADD(net, o1, add_weight, len = 100);
+    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
     tensor &x1 = W_CONV(net, sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = W_MATMUL(net, x1, &matmul1_weight, m = 1, k = 100, n = 10);
-    tensor &sig2 = W_ADD(net, o2, &add1_weight, len = 10);
+    tensor &o2 = W_MATMUL(net, x1, matmul1_weight, m = 1, k = 100, n = 10);
+    tensor &sig2 = W_ADD(net, o2, add1_weight, len = 10);
     tensor &output = W_SIGMOID(net, sig2, len = 10);
     // ----------------------------
 
     // Mean square error
+    tensor answer(shape = {10});
     tensor &loss = W_LOSS_MSE(net, output, answer);
     /*
     conv_weight->load_uc2f(w_conv_weight);
