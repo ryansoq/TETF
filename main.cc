@@ -15,8 +15,8 @@
 // Net class
 float START_QUANTIZATION = 99.0;
 float Accuracy;
-float lr = 0.1;
-float Acc_ok = 98.0;
+float lr = 0.001;
+float Acc_ok = 99.0;
 int global_num = 0;
 
 typedef int8_t q7_t;
@@ -495,17 +495,17 @@ int conv_HWC(tensor *Im_in,
 
 #ifdef TYPE2_BACKWARD_CONV
 int TYPE2_FORWARD_conv_HWC(tensor *Im_in,
-             const uint16_t dim_im_in,
-             const uint16_t ch_im_in,
-             tensor *wt,
-             const uint16_t ch_im_out,
-             const uint16_t dim_kernel,
-             const uint16_t padding,
-             const uint16_t stride,
-             const uint16_t bias_shift,
-             const uint16_t out_shift,
-             tensor *Im_out,
-             const uint16_t dim_im_out)
+                           const uint16_t dim_im_in,
+                           const uint16_t ch_im_in,
+                           tensor *wt,
+                           const uint16_t ch_im_out,
+                           const uint16_t dim_kernel,
+                           const uint16_t padding,
+                           const uint16_t stride,
+                           const uint16_t bias_shift,
+                           const uint16_t out_shift,
+                           tensor *Im_out,
+                           const uint16_t dim_im_out)
 {
     int i, j, k, l, m, n;
     int conv_out;
@@ -531,7 +531,7 @@ int TYPE2_FORWARD_conv_HWC(tensor *Im_in,
                             for (l = 0; l < ch_im_in; l++)
                             {
                                 conv_out +=
-                                (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].val * (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val;
+                                    (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].val * (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val;
                             }
                         }
                     }
@@ -544,17 +544,17 @@ int TYPE2_FORWARD_conv_HWC(tensor *Im_in,
 }
 
 int TYPE2_BACKWARD_conv_HWC(tensor *Im_in,
-             const uint16_t dim_im_in,
-             const uint16_t ch_im_in,
-             tensor *wt,
-             const uint16_t ch_im_out,
-             const uint16_t dim_kernel,
-             const uint16_t padding,
-             const uint16_t stride,
-             const uint16_t bias_shift,
-             const uint16_t out_shift,
-             tensor *Im_out,
-             const uint16_t dim_im_out)
+                            const uint16_t dim_im_in,
+                            const uint16_t ch_im_in,
+                            tensor *wt,
+                            const uint16_t ch_im_out,
+                            const uint16_t dim_kernel,
+                            const uint16_t padding,
+                            const uint16_t stride,
+                            const uint16_t bias_shift,
+                            const uint16_t out_shift,
+                            tensor *Im_out,
+                            const uint16_t dim_im_out)
 {
     int i, j, k, l, m, n;
     int conv_out;
@@ -579,8 +579,8 @@ int TYPE2_BACKWARD_conv_HWC(tensor *Im_in,
                         {
                             for (l = 0; l < ch_im_in; l++)
                             {
-                                (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in +l].diff += (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
-                                (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].diff += (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in +l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
+                                (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].diff += (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
+                                (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].diff += (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
                             }
                         }
                     }
@@ -590,7 +590,6 @@ int TYPE2_BACKWARD_conv_HWC(tensor *Im_in,
     }
     return 0;
 }
-
 
 #endif
 
@@ -799,7 +798,7 @@ void Matmul::forward()
             out[i * n + j].val = 0;
             for (int q = 0; q < k; q++)
             {
-                out[i * n + j].val+=a[i * k + q].val * b[q * n + j].val;
+                out[i * n + j].val += a[i * k + q].val * b[q * n + j].val;
             }
         }
     }
@@ -1662,13 +1661,25 @@ void Net::print()
 // # Wrapper function
 // ---------------------------------------
 
-tensor &W_CONV(Net &net, tensor &in_tensor, tensor **weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+tensor &W_EXTERNAL(std::vector<int> shape)
+{
+    tensor *out_tensor = new tensor(shape);
+    return *out_tensor;
+}
+
+tensor &W_VARIABLE(std::vector<int> shape, std::string str)
+{
+    tensor *out_tensor = new tensor(shape);
+    return *out_tensor;
+}
+
+tensor &W_CONV(Net &net, tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     std::vector<int> shape;
-    tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
-    *weight = w;
+    //tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
+    //*weight = w;
     tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
-    Conv *conv = new Conv(*out_tensor, in_tensor, *w, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
+    Conv *conv = new Conv(*out_tensor, in_tensor, weight, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
     return *out_tensor;
 }
@@ -1765,33 +1776,39 @@ int main()
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
     std::vector<int> shape;
-    tensor input(shape = {28, 28, 1});
+    std::string label;
+    //tensor input(shape = {28, 28, 1});
     tensor answer(shape = {10});
-    tensor *conv_weight;
+    //tensor *conv_weight;
     tensor *matmul_weight;
     tensor *add_weight;
+    //tensor *conv1_weight;
     tensor *matmul1_weight;
     tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &x = W_CONV(net, input, &conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &input = W_EXTERNAL(shape = {28, 28, 1});
+    tensor &conv_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights");
+    tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
     tensor &o1 = W_MATMUL(net, x, &matmul_weight, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, &add_weight, len = 100);
     tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
-    tensor &o2 = W_MATMUL(net, sig_out1, &matmul1_weight, m = 1, k = 100, n = 10);
+    tensor &conv1_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights1");
+    tensor &x1 = W_CONV(net, sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
+    tensor &o2 = W_MATMUL(net, x1, &matmul1_weight, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, &add1_weight, len = 10);
     tensor &output = W_SIGMOID(net, sig2, len = 10);
     // ----------------------------
 
     // Mean square error
     tensor &loss = W_LOSS_MSE(net, output, answer);
-
+    /*
     conv_weight->load_uc2f(w_conv_weight);
     matmul_weight->load_uc2f(w_matmul_weight);
     add_weight->load_uc2f(w_add_weight);
     matmul1_weight->load_uc2f(w_matmul1_weight);
     add1_weight->load_uc2f(w_add1_weight);
-
+*/
     // #######################################
     // # Training site
     // # set input, answer value
@@ -1804,7 +1821,7 @@ int main()
     int Error = 0;
     int test_num = 0;
     int test_runs_count = 1000;
-    int epoch = 160;
+    int epoch = 320;
     int batch = 1;
 
     for (int e = 0; e < epoch; e++)
@@ -1854,6 +1871,7 @@ int main()
 
         if (Accuracy >= Acc_ok)
         {
+            /*
             printf("In check ... ok\n");
             Acc_check = true;
             conv_weight->save_f2uc("conv_weight");
@@ -1861,6 +1879,7 @@ int main()
             add_weight->save_f2uc("add_weight");
             matmul1_weight->save_f2uc("matmul1_weight");
             add1_weight->save_f2uc("add1_weight");
+*/
         }
     }
 #endif
