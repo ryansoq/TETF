@@ -16,7 +16,7 @@
 float START_QUANTIZATION = 99.0;
 float Accuracy;
 float lr = 0.01;
-float Acc_ok = 99.0;
+float Acc_ok = 92.0;
 int global_num = 0;
 
 typedef int8_t q7_t;
@@ -1795,12 +1795,12 @@ int main()
     tensor &add1_weight = W_VARIABLE(shape = {1, 10}, label = "add1_weight");
     tensor &conv1_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights1");
 
-    tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = W_MATMUL(net, x, matmul_weight, m = 1, k = 784, n = 100);
+    //tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &o1 = W_MATMUL(net, input, matmul_weight, m = 1, k = 784, n = 100);
     tensor &sig1 = W_ADD(net, o1, add_weight, len = 100);
     tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
-    tensor &x1 = W_CONV(net, sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = W_MATMUL(net, x1, matmul1_weight, m = 1, k = 100, n = 10);
+    //tensor &x1 = W_CONV(net, sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
+    tensor &o2 = W_MATMUL(net, sig1, matmul1_weight, m = 1, k = 100, n = 10);
     tensor &sig2 = W_ADD(net, o2, add1_weight, len = 10);
     tensor &output = W_SIGMOID(net, sig2, len = 10);
     // ----------------------------
@@ -1814,7 +1814,7 @@ int main()
     add_weight->load_uc2f(w_add_weight);
     matmul1_weight->load_uc2f(w_matmul1_weight);
     add1_weight->load_uc2f(w_add1_weight);
-*/
+    */
     // #######################################
     // # Training site
     // # set input, answer value
@@ -1877,17 +1877,18 @@ int main()
 
         if (Accuracy >= Acc_ok)
         {
-            /*
+
             printf("In check ... ok\n");
             Acc_check = true;
-            conv_weight->save_f2uc("conv_weight");
-            matmul_weight->save_f2uc("matmul_weight");
-            add_weight->save_f2uc("add_weight");
-            matmul1_weight->save_f2uc("matmul1_weight");
-            add1_weight->save_f2uc("add1_weight");
-*/
+            //conv_weight->save_f2uc("conv_weight");
+            matmul_weight.save_f2uc("matmul_weight");
+            add_weight.save_f2uc("add_weight");
+            matmul1_weight.save_f2uc("matmul1_weight");
+            add1_weight.save_f2uc("add1_weight");
+            goto exit;
         }
     }
 #endif
+exit:
     return 0;
 }
