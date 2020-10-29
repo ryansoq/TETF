@@ -377,6 +377,8 @@ void div_acc(node *output, node *input1, node *input2)
 class opBase
 {
 public:
+    std::string nnCode;
+
     virtual void forward()
     {
         std::cout << "forward, Base" << std::endl;
@@ -389,11 +391,53 @@ public:
     {
         std::cout << "update, Base" << std::endl;
     }
+    virtual void save()
+    {
+        std::cout << "dump, Base" << std::endl;
+    }
     virtual void print()
     {
         std::cout << "print, Base" << std::endl;
     }
 };
+
+class External : public opBase
+{
+public:
+    tensor *output;
+    std::vector<int> shape;
+    External(tensor &out, std::vector<int> pShape);
+    void forward(){};
+    void backward(){};
+    void update(){};
+    void save(){};
+};
+
+External::External(tensor &out, std::vector<int> pShape)
+{
+    output = &out;
+    shape = pShape;
+}
+
+class Variable : public opBase
+{
+public:
+    tensor *output;
+    std::vector<int> shape;
+    std::string save_path;
+    Variable(tensor &out, std::vector<int> pShape, std::string pSave_path);
+    void forward(){};
+    void backward(){};
+    void update(){};
+    void save(){};
+};
+
+Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
+{
+    output = &out;
+    shape = pShape;
+    save_path = pSave_path;
+}
 
 class Conv : public opBase
 {
@@ -1524,51 +1568,6 @@ void matmul(node *out, node *a, node *b, int m, int k, int n)
     }
 }
 
-class External : public opBase
-{
-public:
-    tensor *output;
-    tensor keep;
-    std::vector<int> shape;
-    int length;
-    External(tensor &out, std::vector<int> shape_);
-    void forward();
-    void backward();
-    void update();
-};
-
-External::External(tensor &out, std::vector<int> shape_)
-{
-    tensor tmp(shape_);
-    shape = shape_;
-    int ndim = tmp.shape.size();
-    int shape_size = 1;
-
-    for (int i = 0; i < ndim; i++)
-        shape_size *= shape[i];
-    for (int i = 0; i < shape_size; i++)
-        tmp[i].val = rand() % 1000 * 0.001 - 0.5;
-
-    out = tmp;
-    keep = tmp;
-    output = &out; //keep
-}
-
-void External::forward()
-{
-    //...
-}
-
-void External::backward()
-{
-    //...
-}
-
-void External::update()
-{
-    //...
-}
-
 // MSE
 void loss_MSE(node *loss, node *src, node *dest, int m)
 {
@@ -1664,18 +1663,25 @@ void Net::print()
 
 tensor &W_EXTERNAL(std::vector<int> shape)
 {
+    extern Net net;
     tensor *out_tensor = new tensor(shape);
+    External *external = new External(*out_tensor, shape);
+    net.AddLayer(external);
     return *out_tensor;
 }
 
-tensor &W_VARIABLE(std::vector<int> shape, std::string str)
+tensor &W_VARIABLE(std::vector<int> shape, std::string path)
 {
+    extern Net net;
     tensor *out_tensor = new tensor(shape);
+    Variable *variable = new Variable(*out_tensor, shape, path);
+    net.AddLayer(variable);
     return *out_tensor;
 }
 
-tensor &W_CONV(Net &net, tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+tensor &W_CONV(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
+    extern Net net;
     std::vector<int> shape;
     //tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
     //*weight = w;
@@ -1685,8 +1691,9 @@ tensor &W_CONV(Net &net, tensor &in_tensor, tensor &weight, int in_ch, int in_di
     return *out_tensor;
 }
 // [m, k] * [k, n] -> [m, n]
-tensor &W_MATMUL(Net &net, tensor &mk, tensor &kn, int m, int k, int n)
+tensor &W_MATMUL(tensor &mk, tensor &kn, int m, int k, int n)
 {
+    extern Net net;
     std::vector<int> shape;
     //mk.shape.resize(2);
     //mk.shape = {m, k};
@@ -1698,8 +1705,9 @@ tensor &W_MATMUL(Net &net, tensor &mk, tensor &kn, int m, int k, int n)
     return *out_tensor;
 }
 
-tensor &W_ADD(Net &net, tensor &in_tensor, tensor &weight, int length)
+tensor &W_ADD(tensor &in_tensor, tensor &weight, int length)
 {
+    extern Net net;
     std::vector<int> shape;
     //tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     //*weight = b;
@@ -1709,8 +1717,9 @@ tensor &W_ADD(Net &net, tensor &in_tensor, tensor &weight, int length)
     return *out_tensor;
 }
 
-tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
+tensor &W_SIGMOID(tensor &in_tensor, int length)
 {
+    extern Net net;
     std::vector<int> shape;
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, length);
@@ -1718,8 +1727,9 @@ tensor &W_SIGMOID(Net &net, tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_RELU(Net &net, tensor &in_tensor, int length)
+tensor &W_RELU(tensor &in_tensor, int length)
 {
+    extern Net net;
     std::vector<int> shape;
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     ReLU *relu = new ReLU(*out_tensor, in_tensor, length);
@@ -1727,8 +1737,9 @@ tensor &W_RELU(Net &net, tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_LEAKY_RELU(Net &net, tensor &in_tensor, int length)
+tensor &W_LEAKY_RELU(tensor &in_tensor, int length)
 {
+    extern Net net;
     std::vector<int> shape;
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, length);
@@ -1736,14 +1747,17 @@ tensor &W_LEAKY_RELU(Net &net, tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_LOSS_MSE(Net &net, tensor &in_tensor, tensor &ans)
+tensor &W_LOSS_MSE(tensor &in_tensor, tensor &ans)
 {
+    extern Net net;
     std::vector<int> shape;
     tensor *loss = new tensor(shape = {1});
     Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
     net.AddLayer(loss_mse);
     return *loss;
 }
+
+Net net;
 
 int main()
 {
@@ -1773,7 +1787,7 @@ int main()
     // # input -> NN operations(conv, matmul, add, sigmoid, ...) -> lose function(output, answer)
     // ---------------------------------------
 
-    Net net;
+
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
     std::vector<int> shape;
@@ -1796,26 +1810,25 @@ int main()
     tensor &add1_weight = W_VARIABLE(shape = {1, 10}, label = "add1_weight");
     tensor &conv1_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights1");
 
-    //tensor &x = W_CONV(net, input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = W_MATMUL(net, input, matmul_weight, m = 1, k = 784, n = 100);
-    tensor &sig1 = W_ADD(net, o1, add_weight, len = 100);
-    tensor &sig_out1 = W_SIGMOID(net, sig1, len = 100);
-    //tensor &x1 = W_CONV(net, sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = W_MATMUL(net, sig1, matmul1_weight, m = 1, k = 100, n = 10);
-    tensor &sig2 = W_ADD(net, o2, add1_weight, len = 10);
-    tensor &output = W_SIGMOID(net, sig2, len = 10);
+    //tensor &x = W_CONV(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &o1 = W_MATMUL(input, matmul_weight, m = 1, k = 784, n = 100);
+    tensor &sig1 = W_ADD(o1, add_weight, len = 100);
+    tensor &sig_out1 = W_SIGMOID(sig1, len = 100);
+    //tensor &x1 = W_CONV(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
+    tensor &o2 = W_MATMUL(sig1, matmul1_weight, m = 1, k = 100, n = 10);
+    tensor &sig2 = W_ADD(o2, add1_weight, len = 10);
+    tensor &output = W_SIGMOID(sig2, len = 10);
     // ----------------------------
 
     // Mean square error
     tensor answer(shape = {10});
-    tensor &loss = W_LOSS_MSE(net, output, answer);
-
-    //conv_weight->load_uc2f(w_conv_weight);
+    tensor &loss = W_LOSS_MSE(output, answer);
+    /*
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
-
+    */
     // #######################################
     // # Training site
     // # set input, answer value
@@ -1881,7 +1894,6 @@ int main()
 
             printf("In check ... ok\n");
             Acc_check = true;
-            //conv_weight->save_f2uc("conv_weight");
             matmul_weight.save_f2uc("matmul_weight");
             add_weight.save_f2uc("add_weight");
             matmul1_weight.save_f2uc("matmul1_weight");
