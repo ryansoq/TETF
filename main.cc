@@ -1691,7 +1691,7 @@ tensor &tir_conv(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int s
     return *out_tensor;
 }
 // [m, k] * [k, n] -> [m, n]
-tensor &tir_matmul(tensor &mk, tensor &kn, int m, int k, int n)
+tensor &tir_matmul(tensor &mk, tensor &kn)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1699,50 +1699,73 @@ tensor &tir_matmul(tensor &mk, tensor &kn, int m, int k, int n)
     //mk.shape = {m, k};
     //tensor *kn = new tensor(shape = {k, n});
     //*weight = kn;
-    tensor *out_tensor = new tensor(shape = {m, n});
-    Matmul *matmul = new Matmul(*out_tensor, mk, kn, m, k, n);
+    assert(mk.shape[1] == kn.shape[0]);
+    tensor *out_tensor = new tensor(shape = {mk.shape[0], kn.shape[1]});
+    Matmul *matmul = new Matmul(*out_tensor, mk, kn, mk.shape[0], mk.shape[1], kn.shape[1]);
     net.AddLayer(matmul);
     return *out_tensor;
 }
 
-tensor &tir_add(tensor &in_tensor, tensor &weight, int length)
+tensor &tir_add(tensor &in_tensor, tensor &weight)
 {
     extern Net net;
     std::vector<int> shape;
-    //tensor *b = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    //*weight = b;
+    int in_tensor_size = 1;
+    int weight_size = 1;
+
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+        in_tensor_size *= in_tensor.shape[i];
+    for (auto i = 0; i < weight.shape.size(); i++)
+        weight_size *= weight.shape[i];
+
+    assert(in_tensor_size == weight_size); // don't support axis
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Add *add = new Add(*out_tensor, in_tensor, weight, length);
+    Add *add = new Add(*out_tensor, in_tensor, weight, in_tensor_size);
     net.AddLayer(add);
     return *out_tensor;
 }
 
-tensor &tir_sigmoid(tensor &in_tensor, int length)
+tensor &tir_sigmoid(tensor &in_tensor)
 {
     extern Net net;
     std::vector<int> shape;
+
+    int in_tensor_size = 1;
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+        in_tensor_size *= in_tensor.shape[i];
+
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, length);
+    Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(sigmoid);
     return *out_tensor;
 }
 
-tensor &tir_relu(tensor &in_tensor, int length)
+tensor &tir_relu(tensor &in_tensor)
 {
     extern Net net;
     std::vector<int> shape;
+
+    int in_tensor_size = 1;
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+        in_tensor_size *= in_tensor.shape[i];
+
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    ReLU *relu = new ReLU(*out_tensor, in_tensor, length);
+    ReLU *relu = new ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(relu);
     return *out_tensor;
 }
 
-tensor &tir_leaky_relu(tensor &in_tensor, int length)
+tensor &tir_leaky_relu(tensor &in_tensor)
 {
     extern Net net;
     std::vector<int> shape;
+
+    int in_tensor_size = 1;
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+        in_tensor_size *= in_tensor.shape[i];
+
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, length);
+    Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(leaky_relu);
     return *out_tensor;
 }
@@ -1801,22 +1824,22 @@ int main()
     //tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &input = tir_external(shape = {28, 28, 1});
-    tensor &conv_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights");
+    tensor &input = tir_external(shape = {1, 784});
+    //tensor &conv_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights");
     tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
-    tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
+    //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
     //tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = tir_matmul(input, matmul_weight, m = 1, k = 784, n = 100);
-    tensor &sig1 = tir_add(o1, add_weight, len = 100);
-    tensor &sig_out1 = tir_sigmoid(sig1, len = 100);
+    tensor &o1 = tir_matmul(input, matmul_weight);
+    tensor &sig1 = tir_add(o1, add_weight);
+    tensor &sig_out1 = tir_sigmoid(sig1);
     //tensor &x1 = tir_conv(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = tir_matmul(sig1, matmul1_weight, m = 1, k = 100, n = 10);
-    tensor &sig2 = tir_add(o2, add1_weight, len = 10);
-    tensor &output = tir_sigmoid(sig2, len = 10);
+    tensor &o2 = tir_matmul(sig1, matmul1_weight);
+    tensor &sig2 = tir_add(o2, add1_weight);
+    tensor &output = tir_sigmoid(sig2);
     // ----------------------------
 
     // Mean square error
