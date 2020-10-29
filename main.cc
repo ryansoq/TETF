@@ -1661,7 +1661,7 @@ void Net::print()
 // # Wrapper function
 // ---------------------------------------
 
-tensor &W_EXTERNAL(std::vector<int> shape)
+tensor &tir_external(std::vector<int> shape)
 {
     extern Net net;
     tensor *out_tensor = new tensor(shape);
@@ -1670,7 +1670,7 @@ tensor &W_EXTERNAL(std::vector<int> shape)
     return *out_tensor;
 }
 
-tensor &W_VARIABLE(std::vector<int> shape, std::string path)
+tensor &tir_variable(std::vector<int> shape, std::string path)
 {
     extern Net net;
     tensor *out_tensor = new tensor(shape);
@@ -1679,7 +1679,7 @@ tensor &W_VARIABLE(std::vector<int> shape, std::string path)
     return *out_tensor;
 }
 
-tensor &W_CONV(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+tensor &tir_conv(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1691,7 +1691,7 @@ tensor &W_CONV(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int str
     return *out_tensor;
 }
 // [m, k] * [k, n] -> [m, n]
-tensor &W_MATMUL(tensor &mk, tensor &kn, int m, int k, int n)
+tensor &tir_matmul(tensor &mk, tensor &kn, int m, int k, int n)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1705,7 +1705,7 @@ tensor &W_MATMUL(tensor &mk, tensor &kn, int m, int k, int n)
     return *out_tensor;
 }
 
-tensor &W_ADD(tensor &in_tensor, tensor &weight, int length)
+tensor &tir_add(tensor &in_tensor, tensor &weight, int length)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1717,7 +1717,7 @@ tensor &W_ADD(tensor &in_tensor, tensor &weight, int length)
     return *out_tensor;
 }
 
-tensor &W_SIGMOID(tensor &in_tensor, int length)
+tensor &tir_sigmoid(tensor &in_tensor, int length)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1727,7 +1727,7 @@ tensor &W_SIGMOID(tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_RELU(tensor &in_tensor, int length)
+tensor &tir_relu(tensor &in_tensor, int length)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1737,7 +1737,7 @@ tensor &W_RELU(tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_LEAKY_RELU(tensor &in_tensor, int length)
+tensor &tir_leaky_relu(tensor &in_tensor, int length)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1747,7 +1747,7 @@ tensor &W_LEAKY_RELU(tensor &in_tensor, int length)
     return *out_tensor;
 }
 
-tensor &W_LOSS_MSE(tensor &in_tensor, tensor &ans)
+tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 {
     extern Net net;
     std::vector<int> shape;
@@ -1787,7 +1787,6 @@ int main()
     // # input -> NN operations(conv, matmul, add, sigmoid, ...) -> lose function(output, answer)
     // ---------------------------------------
 
-
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
 
     std::vector<int> shape;
@@ -1802,27 +1801,27 @@ int main()
     //tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &input = W_EXTERNAL(shape = {28, 28, 1});
-    tensor &conv_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights");
-    tensor &matmul_weight = W_VARIABLE(shape = {784, 100}, label = "matmul_weight");
-    tensor &matmul1_weight = W_VARIABLE(shape = {100, 10}, label = "matmul1_weight");
-    tensor &add_weight = W_VARIABLE(shape = {1, 100}, label = "add_weight");
-    tensor &add1_weight = W_VARIABLE(shape = {1, 10}, label = "add1_weight");
-    tensor &conv1_weight = W_VARIABLE(shape = {1, 1, 3, 3}, label = "weights1");
+    tensor &input = tir_external(shape = {28, 28, 1});
+    tensor &conv_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights");
+    tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
+    tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
+    tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
+    tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
+    tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
-    //tensor &x = W_CONV(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = W_MATMUL(input, matmul_weight, m = 1, k = 784, n = 100);
-    tensor &sig1 = W_ADD(o1, add_weight, len = 100);
-    tensor &sig_out1 = W_SIGMOID(sig1, len = 100);
-    //tensor &x1 = W_CONV(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = W_MATMUL(sig1, matmul1_weight, m = 1, k = 100, n = 10);
-    tensor &sig2 = W_ADD(o2, add1_weight, len = 10);
-    tensor &output = W_SIGMOID(sig2, len = 10);
+    //tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
+    tensor &o1 = tir_matmul(input, matmul_weight, m = 1, k = 784, n = 100);
+    tensor &sig1 = tir_add(o1, add_weight, len = 100);
+    tensor &sig_out1 = tir_sigmoid(sig1, len = 100);
+    //tensor &x1 = tir_conv(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
+    tensor &o2 = tir_matmul(sig1, matmul1_weight, m = 1, k = 100, n = 10);
+    tensor &sig2 = tir_add(o2, add1_weight, len = 10);
+    tensor &output = tir_sigmoid(sig2, len = 10);
     // ----------------------------
 
     // Mean square error
     tensor answer(shape = {10});
-    tensor &loss = W_LOSS_MSE(output, answer);
+    tensor &loss = tir_loss_mse(output, answer);
     /*
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
