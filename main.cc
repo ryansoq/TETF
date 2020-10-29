@@ -10,13 +10,14 @@
 #include <f2uc.h>
 
 // Weight 93-94%
-#include "weight.inc"
+//#include "weight.inc"
+#include "ff92_weight.inc"
 
 // Net class
-float START_QUANTIZATION = 99.0;
+float START_QUANTIZATION = 100.0;
 float Accuracy;
 float lr = 0.01;
-float Acc_ok = 92.0;
+float Acc_ok = 99.0;
 int global_num = 0;
 
 typedef int8_t q7_t;
@@ -1808,13 +1809,13 @@ int main()
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = W_LOSS_MSE(net, output, answer);
-    /*
-    conv_weight->load_uc2f(w_conv_weight);
-    matmul_weight->load_uc2f(w_matmul_weight);
-    add_weight->load_uc2f(w_add_weight);
-    matmul1_weight->load_uc2f(w_matmul1_weight);
-    add1_weight->load_uc2f(w_add1_weight);
-    */
+
+    //conv_weight->load_uc2f(w_conv_weight);
+    matmul_weight.load_uc2f(w_matmul_weight);
+    add_weight.load_uc2f(w_add_weight);
+    matmul1_weight.load_uc2f(w_matmul1_weight);
+    add1_weight.load_uc2f(w_add1_weight);
+
     // #######################################
     // # Training site
     // # set input, answer value
