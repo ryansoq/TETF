@@ -1,3 +1,9 @@
+//[Epoch : 0 / 320], [Batch : 1], [iteration : 1000], [Loss : 0.0000000], [Accuracy : 93.4000015% ... success]
+//[Epoch : 0 / 320], [Batch : 1], [iteration : 2000], [Loss : 0.0000000], [Accuracy : 92.2500000% ... success]
+//[Epoch : 0 / 320], [Batch : 1], [iteration : 3000], [Loss : 0.0000000], [Accuracy : 92.8333359% ... success]
+//[Epoch : 0 / 320], [Batch : 1], [iteration : 4000], [Loss : 0.0000000], [Accuracy : 93.0250015% ... success]
+//[Epoch : 0 / 320], [Batch : 1], [iteration : 5000], [Loss : 0.0000000], [Accuracy : 93.1200027% ... success]
+
 unsigned char w_matmul_weight[] = {
 0xd1, 0x22, 0xdb, 0x3e, 0x50, 0x8d, 0x17, 0xbe, 0x79, 0xe9, 0x26, 0x3e, 
 0x37, 0x89, 0x41, 0x3e, 0x35, 0x5e, 0xba, 0x3e, 0xe1, 0x7a, 0xd4, 0xbe, 

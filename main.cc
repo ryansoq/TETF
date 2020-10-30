@@ -563,7 +563,7 @@ int TYPE2_FORWARD_conv_HWC(tensor *Im_in,
             for (k = 0; k < dim_im_out; k++)
             {
                 conv_out = 0;
-                (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].val = 0.0;
+
                 for (m = 0; m < dim_kernel; m++)
                 {
                     for (n = 0; n < dim_kernel; n++)
@@ -612,7 +612,7 @@ int TYPE2_BACKWARD_conv_HWC(tensor *Im_in,
             for (k = 0; k < dim_im_out; k++)
             {
                 conv_out = 0;
-                (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].val = 0.0;
+
                 for (m = 0; m < dim_kernel; m++)
                 {
                     for (n = 0; n < dim_kernel; n++)
@@ -1718,7 +1718,9 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
     for (auto i = 0; i < weight.shape.size(); i++)
         weight_size *= weight.shape[i];
 
-    assert(in_tensor_size == weight_size); // don't support axis
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+        assert(in_tensor.shape[i] == weight.shape[i]);
+
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
     Add *add = new Add(*out_tensor, in_tensor, weight, in_tensor_size);
     net.AddLayer(add);
@@ -1845,12 +1847,12 @@ int main()
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = tir_loss_mse(output, answer);
-    /*
+
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
-    */
+
     // #######################################
     // # Training site
     // # set input, answer value
