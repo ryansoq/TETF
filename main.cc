@@ -439,6 +439,33 @@ Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
     save_path = pSave_path;
 }
 
+class Reshape : public opBase
+{
+public:
+    tensor *output;
+    tensor *input1;
+    std::vector<int> shape;
+    Reshape(tensor &out, tensor &a, std::vector<int> shape);
+    void forward();
+    void backward(){};
+    void update(){};
+    void save(){};
+};
+
+Reshape::Reshape(tensor &out, tensor &a, std::vector<int> p_shape)
+{
+    output = &a;
+    input1 = &a;
+    shape = p_shape;
+}
+
+void Reshape::forward()
+{
+    tensor &out = *output;
+    tensor &a = *input1;
+    out.shape = shape;
+}
+
 class Conv : public opBase
 {
 public:
@@ -635,6 +662,102 @@ int TYPE2_BACKWARD_conv_HWC(tensor *Im_in,
     }
     return 0;
 }
+#elif TYPE3_BACKWARD_CONV
+int TYPE3_FORWARD_conv_CHW(tensor *Im_in,
+                           const uint16_t dim_im_in,
+                           const uint16_t ch_im_in,
+                           tensor *wt,
+                           const uint16_t ch_im_out,
+                           const uint16_t dim_kernel,
+                           const uint16_t padding,
+                           const uint16_t stride,
+                           const uint16_t bias_shift,
+                           const uint16_t out_shift,
+                           tensor *Im_out,
+                           const uint16_t dim_im_out)
+{
+    uint16_t i, j, k, l, m, n;
+    int conv_out;
+    long in_row, in_col;
+
+    for (i = 0; i < ch_im_out; i++)
+    {
+        for (j = 0; j < dim_im_out; j++)
+        {
+            for (k = 0; k < dim_im_out; k++)
+            {
+                conv_out = 0;
+                for (m = 0; m < dim_kernel; m++)
+                {
+                    for (n = 0; n < dim_kernel; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - padding;
+                        in_col = stride * k + n - padding;
+                        if (in_row >= 0 && in_col >= 0 && in_row < dim_im_in && in_col < dim_im_in)
+                        {
+                            for (l = 0; l < ch_im_in; l++)
+                            {
+                                conv_out +=
+                                    (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].val * (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val;
+                            }
+                        }
+                    }
+                }
+                (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].val = conv_out;
+            }
+        }
+    }
+    return 0;
+}
+
+int TYPE3_BACKWARD_conv_CHW(tensor *Im_in,
+                            const uint16_t dim_im_in,
+                            const uint16_t ch_im_in,
+                            tensor *wt,
+                            const uint16_t ch_im_out,
+                            const uint16_t dim_kernel,
+                            const uint16_t padding,
+                            const uint16_t stride,
+                            const uint16_t bias_shift,
+                            const uint16_t out_shift,
+                            tensor *Im_out,
+                            const uint16_t dim_im_out)
+{
+    uint16_t i, j, k, l, m, n;
+    int conv_out;
+    long in_row, in_col;
+
+    for (i = 0; i < ch_im_out; i++)
+    {
+        for (j = 0; j < dim_im_out; j++)
+        {
+            for (k = 0; k < dim_im_out; k++)
+            {
+                conv_out = 0;
+                for (m = 0; m < dim_kernel; m++)
+                {
+                    for (n = 0; n < dim_kernel; n++)
+                    {
+                        // if-for implementation
+                        in_row = stride * j + m - padding;
+                        in_col = stride * k + n - padding;
+                        if (in_row >= 0 && in_col >= 0 && in_row < dim_im_in && in_col < dim_im_in)
+                        {
+                            for (l = 0; l < ch_im_in; l++)
+                            {
+                                (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].diff += (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
+                                (*wt)[i * ch_im_in * dim_kernel * dim_kernel + (m * dim_kernel + n) * ch_im_in + l].diff += (*Im_in)[(in_row * dim_im_in + in_col) * ch_im_in + l].val * (*Im_out)[i + (j * dim_im_out + k) * ch_im_out].diff;
+                            }
+                        }
+                    }
+                }
+                //(*Im_out)[i + (j * dim_im_out + k) * ch_im_out].val = conv_out;
+            }
+        }
+    }
+    return 0;
+}
 
 #endif
 
@@ -655,6 +778,22 @@ void Conv::forward()
     tensor *wt = input2;
     tensor *Im_out = output;
     int ret = TYPE2_FORWARD_conv_HWC(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
+#elif TYPE3_BACKWARD_CONV
+    const uint16_t in_tensor_dim = m_m;
+    const uint16_t in_tensor_ch = m_c;
+    const uint16_t out_tensor_ch = m_out_c;
+    const uint16_t ker_dim = m_ks;
+    const uint16_t pad = m_pad;
+    const uint16_t stride = m_stride;
+    const uint16_t out_tensor_dim = m_out_x;
+    uint16_t i, j, k, l, m, n;
+    long in_row, in_col;
+    // NCHW
+    tensor *Im_in = input1;
+    tensor *wt = input2;
+    tensor *Im_out = output;
+    //printf("TYPE3_BACKWARD_conv_CHW\n");
+    int ret = TYPE3_FORWARD_conv_CHW(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
 #else
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
@@ -721,6 +860,22 @@ void Conv::backward()
     tensor *wt = input2;
     tensor *Im_out = output;
     int ret = TYPE2_BACKWARD_conv_HWC(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
+#elif TYPE3_BACKWARD_CONV
+    const uint16_t in_tensor_dim = m_m;
+    const uint16_t in_tensor_ch = m_c;
+    const uint16_t out_tensor_ch = m_out_c;
+    const uint16_t ker_dim = m_ks;
+    const uint16_t pad = m_pad;
+    const uint16_t stride = m_stride;
+    const uint16_t out_tensor_dim = m_out_x;
+    uint16_t i, j, k, l, m, n;
+    long in_row, in_col;
+    // NCHW
+    tensor *Im_in = input1;
+    tensor *wt = input2;
+    tensor *Im_out = output;
+    //printf("TYPE3_BACKWARD_conv_CHW\n");
+    int ret = TYPE3_BACKWARD_conv_CHW(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
 #else
     int c = m_c;
     int m = m_m;
@@ -1679,6 +1834,16 @@ tensor &tir_variable(std::vector<int> shape, std::string path)
     return *out_tensor;
 }
 
+tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
+{
+    extern Net net;
+    tensor *out_tensor = &in_tensor;
+    out_tensor->shape = p_shape;
+    Reshape *reshape = new Reshape(*out_tensor, in_tensor, p_shape);
+    net.AddLayer(reshape);
+    return *out_tensor;
+}
+
 tensor &tir_conv(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     extern Net net;
@@ -1826,16 +1991,17 @@ int main()
     //tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &input = tir_external(shape = {1, 784});
-    //tensor &conv_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights");
-    tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
+    tensor &input = tir_external(shape = {1, 1, 28, 28});
+    tensor &conv_weight = tir_variable(shape = {5, 1, 3, 3}, label = "weights");
+    tensor &matmul_weight = tir_variable(shape = {3920, 100}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
     //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
-    //tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 28);
-    tensor &o1 = tir_matmul(input, matmul_weight);
+    tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 5, out_dim = 28);
+    tensor &reshape = tir_reshape(x, shape = {1, 3920});
+    tensor &o1 = tir_matmul(reshape, matmul_weight);
     tensor &sig1 = tir_add(o1, add_weight);
     tensor &sig_out1 = tir_sigmoid(sig1);
     //tensor &x1 = tir_conv(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
@@ -1847,12 +2013,12 @@ int main()
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = tir_loss_mse(output, answer);
-
+    /*
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
-
+    */
     // #######################################
     // # Training site
     // # set input, answer value
