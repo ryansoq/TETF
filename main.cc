@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <iomanip>
 #include <f2uc.h>
+#include <float.h>  //max_pool
 
 // Weight 93-94%
 //#include "weight.inc"
@@ -16,7 +17,7 @@
 // Net class
 float START_QUANTIZATION = 100.0;
 float Accuracy;
-float lr = 0.01;
+float lr = 0.001;
 float Acc_ok = 99.0;
 int global_num = 0;
 
@@ -464,6 +465,265 @@ void Reshape::forward()
     tensor &out = *output;
     tensor &a = *input1;
     out.shape = shape;
+}
+
+class Max_pool : public opBase
+{
+public:
+    tensor *output;
+    tensor *input1;
+    int m_stride;
+    int m_size;
+    int m_pad;
+    Max_pool(tensor &out, tensor &a, int p_size, int p_padding, int p_stride);
+    void forward();
+    void backward();
+    void update();
+    void save(){};
+};
+
+Max_pool::Max_pool(tensor &out, tensor &a, int size, int pad, int stride)
+{
+    output = &out;
+    input1 = &a;
+    m_size = size;
+    m_pad = pad;
+    m_stride = stride;
+}
+
+void Max_pool::forward()
+{
+    //Run
+    //tensor<float> out;
+    //out.shape.resize(4);
+
+    int v_offset_T = 0;
+    int v_offset_Z = 0;
+    int v_offset_Y = 0;
+    int v_offset_X = 0;
+
+    //virtual_height, virtual_weight
+    int v_height = 0;
+    int v_width = 0;
+
+    //virtual_bound_height , virtual_bound_weight
+    int vb_height = 0;
+    int vb_width = 0;
+
+    int out_n = output->shape[0];
+    int out_c = output->shape[1];
+    int out_h = output->shape[2];
+    int out_w = output->shape[3];
+    int in_n = input1->shape[0];
+    int in_c = input1->shape[1];
+    int in_h = input1->shape[2];
+    int in_w = input1->shape[3];
+    int size = m_size;
+    int stride = m_stride;
+    int padding = m_pad;
+
+    // Chack
+    // NCHW foramt
+    assert(input1->shape[2] >= size);
+    assert(input1->shape[3] >= size);
+
+    if (padding)
+    {
+        out_n = in_n;
+        out_c = in_c;
+        out_h = (int)(ceil((float)(in_h)/(float)stride));
+        out_w = (int)(ceil((float)(in_w)/(float)stride));
+
+        int newY = size + (out_h - 1) * stride;
+        int newX = size + (out_w - 1) * stride;
+
+        v_offset_Y = (newY - in_h) / 2;
+        v_offset_X = (newX - in_w) / 2;
+
+        vb_height = in_h + v_offset_Y;
+        vb_width = in_w + v_offset_X;
+    }
+    else
+    {
+        out_n = in_n;
+        out_c = in_c;
+        out_h = ceil(((float)(in_h - size + 1))/((float)stride));
+        out_w = ceil(((float)(in_w - size + 1))/((float)stride));
+
+        vb_height = in_h;
+        vb_width = in_w;
+    }
+
+    //virtual_height, virtual_weight
+    v_height = v_offset_Y;
+    v_width = v_offset_X;
+
+    //make_tensor(out, out->n, out->c, out->h, out->w);
+    output->shape[0] = out_n;
+    output->shape[1] = out_c;
+    output->shape[2] = out_h;
+    output->shape[3] = out_w;
+
+    // Tensor is [batch, height, width, channels], NNEF not
+    // NNEF is [batch, channels, height, width]
+    for (int N = 0; N < out_n; N++)
+        //#pragma omp parallel for
+        for (int C = 0; C < out_c; C++)
+            for (int H = 0; H < out_h; H++)
+                for (int W = 0; W < out_w; W++)
+                {
+                    float MaxValue = -FLT_MAX;
+                    int offsetY = (H  * stride);
+                    int offsetX = (W  * stride);
+
+                    //for (int x = 0; x < size[0]; x++)
+                        //for (int y = 0; y < size[1]; y++)
+                    for (int z = 0; z < size; z++)
+                        for (int t = 0; t < size; t++)
+                            {
+                                // logical_height, logical_weight
+                                int l_height = z + offsetY;
+                                int l_weight = t + offsetX;
+
+                                if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                                {
+                                    float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
+                                    if (MaxValue < value)
+                                        MaxValue = value;
+                                }
+                            }
+                    output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
+                }
+}
+
+void Max_pool::backward()
+{
+    //Run
+    //tensor<float> out;
+    //out.shape.resize(4);
+
+    int v_offset_T = 0;
+    int v_offset_Z = 0;
+    int v_offset_Y = 0;
+    int v_offset_X = 0;
+
+    //virtual_height, virtual_weight
+    int v_height = 0;
+    int v_width = 0;
+
+    //virtual_bound_height , virtual_bound_weight
+    int vb_height = 0;
+    int vb_width = 0;
+
+    int out_n = output->shape[0];
+    int out_c = output->shape[1];
+    int out_h = output->shape[2];
+    int out_w = output->shape[3];
+    int in_n = input1->shape[0];
+    int in_c = input1->shape[1];
+    int in_h = input1->shape[2];
+    int in_w = input1->shape[3];
+    int size = m_size;
+    int stride = m_stride;
+    int padding = m_pad;
+
+    // Chack
+    // NCHW foramt
+    assert(input1->shape[2] >= size);
+    assert(input1->shape[3] >= size);
+
+    if (padding)
+    {
+        out_n = in_n;
+        out_c = in_c;
+        out_h = (int)(ceil((float)(in_h)/(float)stride));
+        out_w = (int)(ceil((float)(in_w)/(float)stride));
+
+        int newY = size + (out_h - 1) * stride;
+        int newX = size + (out_w - 1) * stride;
+
+        v_offset_Y = (newY - in_h) / 2;
+        v_offset_X = (newX - in_w) / 2;
+
+        vb_height = in_h + v_offset_Y;
+        vb_width = in_w + v_offset_X;
+    }
+    else
+    {
+        out_n = in_n;
+        out_c = in_c;
+        out_h = ceil(((float)(in_h - size + 1))/((float)stride));
+        out_w = ceil(((float)(in_w - size + 1))/((float)stride));
+
+        vb_height = in_h;
+        vb_width = in_w;
+    }
+
+    //virtual_height, virtual_weight
+    v_height = v_offset_Y;
+    v_width = v_offset_X;
+
+    //make_tensor(out, out->n, out->c, out->h, out->w);
+    output->shape[0] = out_n;
+    output->shape[1] = out_c;
+    output->shape[2] = out_h;
+    output->shape[3] = out_w;
+
+    // Tensor is [batch, height, width, channels], NNEF not
+    // NNEF is [batch, channels, height, width]
+    for (int N = 0; N < out_n; N++)
+        //#pragma omp parallel for
+        for (int C = 0; C < out_c; C++)
+            for (int H = 0; H < out_h; H++)
+                for (int W = 0; W < out_w; W++)
+                {
+                    float MaxValue = -FLT_MAX;
+                    int offsetY = (H  * stride);
+                    int offsetX = (W  * stride);
+
+                    //for (int x = 0; x < size[0]; x++)
+                        //for (int y = 0; y < size[1]; y++)
+                    int index;
+                    for (int z = 0; z < size; z++)
+                        for (int t = 0; t < size; t++)
+                            {
+                                // logical_height, logical_weight
+                                int l_height = z + offsetY;
+                                int l_weight = t + offsetX;
+
+                                if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                                {
+                                    float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
+                                    if (MaxValue < value)
+                                    {
+                                        MaxValue = value;
+                                        index = N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X);
+                                    }
+                                }
+                            }
+                    //output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
+                    input1->data[index].diff += 1 * output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].diff;
+                }
+}
+
+void Max_pool::update()
+{
+    int size = m_size;
+    int stride = m_stride;
+    int padding = m_pad;
+    tensor &x = *input1;
+
+    for (int i = 0; i < x.data.size(); i++)
+    {
+        if (Accuracy > START_QUANTIZATION)
+        {
+            x[i].f2q();
+            x[i].q2f();
+        }
+        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
 }
 
 class Conv : public opBase
@@ -1850,11 +2110,42 @@ tensor &tir_conv(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int s
     std::vector<int> shape;
     //tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
     //*weight = w;
-    tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
+    tensor *out_tensor = new tensor(shape = {1 , out_ch, out_dim, out_dim});
     Conv *conv = new Conv(*out_tensor, in_tensor, weight, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
     return *out_tensor;
 }
+
+tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
+{
+    extern Net net;
+    std::vector<int> shape;
+    // out_tensor in
+    tensor *out_tensor;
+    int out_n, out_c, out_h, out_w;
+    if (p_padding == 1)
+    {
+        out_n = in_tensor.shape[0];
+        out_c = in_tensor.shape[1];
+        out_h = (int)(ceil((float)(in_tensor.shape[2])/(float)p_stride));
+        out_w = (int)(ceil((float)(in_tensor.shape[3])/(float)p_stride));
+        out_tensor = new tensor(shape = {out_n, out_c, out_h, out_w});
+    }
+    else
+    {
+        out_n = in_tensor.shape[0];
+        out_c = in_tensor.shape[1];
+        out_h = ceil(((float)(in_tensor.shape[2] - p_size + 1))/((float)p_stride));
+        out_w = ceil(((float)(in_tensor.shape[3] - p_size + 1))/((float)p_stride));
+        out_tensor = new tensor(shape = {out_n, out_c, out_h, out_w});
+    }
+    std::cout << "Max_pool_out_shape(NCHW) : " << out_n << ", " << out_c << ", " << out_h << ", " << out_w << std::endl;
+    //tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
+    Max_pool *max_pool = new Max_pool(*out_tensor, in_tensor, p_size, p_padding, p_stride);
+    net.AddLayer(max_pool);
+    return *out_tensor;
+}
+
 // [m, k] * [k, n] -> [m, n]
 tensor &tir_matmul(tensor &mk, tensor &kn)
 {
@@ -1977,7 +2268,7 @@ int main()
     // # input -> NN operations(conv, matmul, add, sigmoid, ...) -> lose function(output, answer)
     // ---------------------------------------
 
-    int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len;
+    int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len, size;
 
     std::vector<int> shape;
     std::string label;
@@ -1992,15 +2283,16 @@ int main()
 
     // --------- NN model ---------
     tensor &input = tir_external(shape = {1, 1, 28, 28});
-    tensor &conv_weight = tir_variable(shape = {5, 1, 3, 3}, label = "weights");
-    tensor &matmul_weight = tir_variable(shape = {3920, 100}, label = "matmul_weight");
+    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "weights");
+    tensor &matmul_weight = tir_variable(shape = {1960, 100}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
     //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
-    tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 5, out_dim = 28);
-    tensor &reshape = tir_reshape(x, shape = {1, 3920});
+    tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
+    tensor &max_pool = tir_max_pool(x, size = 2, pad = 1, stride = 2);
+    tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
     tensor &o1 = tir_matmul(reshape, matmul_weight);
     tensor &sig1 = tir_add(o1, add_weight);
     tensor &sig_out1 = tir_sigmoid(sig1);
@@ -2031,7 +2323,7 @@ int main()
     int Error = 0;
     int test_num = 0;
     int test_runs_count = 1000;
-    int epoch = 320;
+    int epoch = 1024;
     int batch = 1;
 
     for (int e = 0; e < epoch; e++)
