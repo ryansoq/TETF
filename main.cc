@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <iomanip>
 #include <f2uc.h>
-#include <float.h>  //max_pool
+#include <float.h> //max_pool
 
 // Weight 93-94%
 //#include "weight.inc"
@@ -120,6 +120,7 @@ public:
     int ndim;
     DLDataType dtype;
     std::vector<int> shape;
+    int n, c, h, w;
     std::vector<int> strides;
     uint64_t byte_offset;
 
@@ -133,6 +134,10 @@ public:
         shape = _shape;
         ndim = shape.size();
         int shape_size = 1;
+        n = shape[0];
+        c = shape[1];
+        h = shape[2];
+        w = shape[3];
 
         for (int i = 0; i < ndim; i++)
             shape_size *= shape[i];
@@ -531,8 +536,8 @@ void Max_pool::forward()
     {
         out_n = in_n;
         out_c = in_c;
-        out_h = (int)(ceil((float)(in_h)/(float)stride));
-        out_w = (int)(ceil((float)(in_w)/(float)stride));
+        out_h = (int)(ceil((float)(in_h) / (float)stride));
+        out_w = (int)(ceil((float)(in_w) / (float)stride));
 
         int newY = size + (out_h - 1) * stride;
         int newX = size + (out_w - 1) * stride;
@@ -547,8 +552,8 @@ void Max_pool::forward()
     {
         out_n = in_n;
         out_c = in_c;
-        out_h = ceil(((float)(in_h - size + 1))/((float)stride));
-        out_w = ceil(((float)(in_w - size + 1))/((float)stride));
+        out_h = ceil(((float)(in_h - size + 1)) / ((float)stride));
+        out_w = ceil(((float)(in_w - size + 1)) / ((float)stride));
 
         vb_height = in_h;
         vb_width = in_w;
@@ -573,25 +578,25 @@ void Max_pool::forward()
                 for (int W = 0; W < out_w; W++)
                 {
                     float MaxValue = -FLT_MAX;
-                    int offsetY = (H  * stride);
-                    int offsetX = (W  * stride);
+                    int offsetY = (H * stride);
+                    int offsetX = (W * stride);
 
                     //for (int x = 0; x < size[0]; x++)
-                        //for (int y = 0; y < size[1]; y++)
+                    //for (int y = 0; y < size[1]; y++)
                     for (int z = 0; z < size; z++)
                         for (int t = 0; t < size; t++)
-                            {
-                                // logical_height, logical_weight
-                                int l_height = z + offsetY;
-                                int l_weight = t + offsetX;
+                        {
+                            // logical_height, logical_weight
+                            int l_height = z + offsetY;
+                            int l_weight = t + offsetX;
 
-                                if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
-                                {
-                                    float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
-                                    if (MaxValue < value)
-                                        MaxValue = value;
-                                }
+                            if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                            {
+                                float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
+                                if (MaxValue < value)
+                                    MaxValue = value;
                             }
+                        }
                     output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
                 }
 }
@@ -636,8 +641,8 @@ void Max_pool::backward()
     {
         out_n = in_n;
         out_c = in_c;
-        out_h = (int)(ceil((float)(in_h)/(float)stride));
-        out_w = (int)(ceil((float)(in_w)/(float)stride));
+        out_h = (int)(ceil((float)(in_h) / (float)stride));
+        out_w = (int)(ceil((float)(in_w) / (float)stride));
 
         int newY = size + (out_h - 1) * stride;
         int newX = size + (out_w - 1) * stride;
@@ -652,8 +657,8 @@ void Max_pool::backward()
     {
         out_n = in_n;
         out_c = in_c;
-        out_h = ceil(((float)(in_h - size + 1))/((float)stride));
-        out_w = ceil(((float)(in_w - size + 1))/((float)stride));
+        out_h = ceil(((float)(in_h - size + 1)) / ((float)stride));
+        out_w = ceil(((float)(in_w - size + 1)) / ((float)stride));
 
         vb_height = in_h;
         vb_width = in_w;
@@ -678,29 +683,29 @@ void Max_pool::backward()
                 for (int W = 0; W < out_w; W++)
                 {
                     float MaxValue = -FLT_MAX;
-                    int offsetY = (H  * stride);
-                    int offsetX = (W  * stride);
+                    int offsetY = (H * stride);
+                    int offsetX = (W * stride);
 
                     //for (int x = 0; x < size[0]; x++)
-                        //for (int y = 0; y < size[1]; y++)
+                    //for (int y = 0; y < size[1]; y++)
                     int index;
                     for (int z = 0; z < size; z++)
                         for (int t = 0; t < size; t++)
-                            {
-                                // logical_height, logical_weight
-                                int l_height = z + offsetY;
-                                int l_weight = t + offsetX;
+                        {
+                            // logical_height, logical_weight
+                            int l_height = z + offsetY;
+                            int l_weight = t + offsetX;
 
-                                if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                            if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                            {
+                                float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
+                                if (MaxValue < value)
                                 {
-                                    float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
-                                    if (MaxValue < value)
-                                    {
-                                        MaxValue = value;
-                                        index = N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X);
-                                    }
+                                    MaxValue = value;
+                                    index = N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X);
                                 }
                             }
+                        }
                     //output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
                     input1->data[index].diff += 1 * output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].diff;
                 }
@@ -1018,7 +1023,211 @@ int TYPE3_BACKWARD_conv_CHW(tensor *Im_in,
     }
     return 0;
 }
+#elif TYPE4_BACKWARD_CONV // NNEF-RTX
+int TYPE4_FORWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias, int padding, int stride, int groups)
+{
+    //shape
+    int inPic = in_x->n;
+    int filterKernelNum = filter->n;
 
+    assert(in_x->h >= filter->h);
+    assert(in_x->w >= filter->w);
+
+    int v_offset_Y = 0;
+    int v_offset_X = 0;
+
+    //virtual_height, virtual_weight
+    int v_height = 0;
+    int v_width = 0;
+
+    //virtual_bound_height , virtual_bound_weight
+    int vb_height = 0;
+    int vb_width = 0;
+
+    int pad = 0;
+
+    if (padding)
+    {
+        out->n = in_x->n;
+        out->c = filter->n;
+        out->h = ceil(((float)in_x->h) / ((float)stride));
+        out->w = ceil(((float)in_x->w) / ((float)stride));
+
+        //padding
+        int newY = filter->h + (out->h - 1) * stride;
+        int newX = filter->w + (out->w - 1) * stride;
+
+        v_offset_Y = (newY - in_x->h) / 2;
+        v_offset_X = (newX - in_x->w) / 2;
+
+        vb_height = in_x->h + v_offset_Y;
+        vb_width = in_x->w + v_offset_X;
+
+        pad = ((out->h - 1) * stride + filter->h - in_x->h) / 2;
+    }
+    else
+    {
+        out->n = in_x->n;
+        out->c = filter->n;
+        out->h = ceil(((float)(in_x->h - filter->h + 1)) / ((float)stride));
+        out->w = ceil(((float)(in_x->w - filter->w + 1)) / ((float)stride));
+
+        vb_height = in_x->h;
+        vb_width = in_x->w;
+
+        pad = 0;
+    }
+
+    //virtual_height, virtual_weight
+    v_height = v_offset_Y;
+    v_width = v_offset_X;
+
+    if (groups == 1) //general convolution
+    {
+        for (int Pic = 0; Pic < inPic; Pic++)
+        {
+            for (int filterKernel = 0; filterKernel < filterKernelNum; filterKernel++) // 32
+            {
+                for (int height = 0; height < out->h; height = height + 1) //28
+                {
+                    for (int width = 0; width < out->w; width = width + 1) //28
+                    {
+                        float featureValue = 0;
+                        int offsetY = (height * stride);
+                        int offsetX = (width * stride);
+
+                        for (int z = 0; z < filter->c; z++)
+                        {
+                            for (int y = 0; y < filter->h; y++)
+                            {
+                                for (int x = 0; x < filter->w; x++)
+                                {
+                                    // logical_height, logical_weight
+                                    int l_height = y + offsetY;
+                                    int l_weight = x + offsetX;
+
+                                    if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                                        featureValue = featureValue + in_x->data[Pic * in_x->c * in_x->h * in_x->w + z * in_x->h * in_x->w + (l_height - v_offset_Y) * in_x->w + (l_weight - v_offset_X)].val * filter->data[filterKernel * filter->c * filter->h * filter->w + z * filter->h * filter->w + y * filter->w + x].val;
+                                }
+                            }
+                        }
+                        out->data[Pic * out->c * out->h * out->w + filterKernel * out->h * out->w + height * out->w + width].val = featureValue + bias;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        assert(0); // Current not support.
+    }
+
+    return 0;
+}
+
+int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias, int padding, int stride, int groups)
+{
+    //shape
+    int inPic = in_x->n;
+    int filterKernelNum = filter->n;
+
+    assert(in_x->h >= filter->h);
+    assert(in_x->w >= filter->w);
+
+    int v_offset_Y = 0;
+    int v_offset_X = 0;
+
+    //virtual_height, virtual_weight
+    int v_height = 0;
+    int v_width = 0;
+
+    //virtual_bound_height , virtual_bound_weight
+    int vb_height = 0;
+    int vb_width = 0;
+
+    int pad = 0;
+
+    if (padding)
+    {
+        out->n = in_x->n;
+        out->c = filter->n;
+        out->h = ceil(((float)in_x->h) / ((float)stride));
+        out->w = ceil(((float)in_x->w) / ((float)stride));
+
+        //padding
+        int newY = filter->h + (out->h - 1) * stride;
+        int newX = filter->w + (out->w - 1) * stride;
+
+        v_offset_Y = (newY - in_x->h) / 2;
+        v_offset_X = (newX - in_x->w) / 2;
+
+        vb_height = in_x->h + v_offset_Y;
+        vb_width = in_x->w + v_offset_X;
+
+        pad = ((out->h - 1) * stride + filter->h - in_x->h) / 2;
+    }
+    else
+    {
+        out->n = in_x->n;
+        out->c = filter->n;
+        out->h = ceil(((float)(in_x->h - filter->h + 1)) / ((float)stride));
+        out->w = ceil(((float)(in_x->w - filter->w + 1)) / ((float)stride));
+
+        vb_height = in_x->h;
+        vb_width = in_x->w;
+
+        pad = 0;
+    }
+
+    //virtual_height, virtual_weight
+    v_height = v_offset_Y;
+    v_width = v_offset_X;
+
+    if (groups == 1) //general convolution
+    {
+        for (int Pic = 0; Pic < inPic; Pic++)
+        {
+            for (int filterKernel = 0; filterKernel < filterKernelNum; filterKernel++) // 32
+            {
+                for (int height = 0; height < out->h; height = height + 1) //28
+                {
+                    for (int width = 0; width < out->w; width = width + 1) //28
+                    {
+                        float featureValue = 0;
+                        int offsetY = (height * stride);
+                        int offsetX = (width * stride);
+
+                        for (int z = 0; z < filter->c; z++)
+                        {
+                            for (int y = 0; y < filter->h; y++)
+                            {
+                                for (int x = 0; x < filter->w; x++)
+                                {
+                                    // logical_height, logical_weight
+                                    int l_height = y + offsetY;
+                                    int l_weight = x + offsetX;
+
+                                    if ((l_height >= v_height && l_weight >= v_width) && (l_height < vb_height && l_weight < vb_width))
+                                    {
+                                        //featureValue = featureValue + in_x->data[Pic * in_x->c * in_x->h * in_x->w + z * in_x->h * in_x->w + (l_height - v_offset_Y) * in_x->w + (l_weight - v_offset_X)].val * filter->data[filterKernel * filter->c * filter->h * filter->w + z * filter->h * filter->w + y * filter->w + x].val;
+                                        in_x->data[Pic * in_x->c * in_x->h * in_x->w + z * in_x->h * in_x->w + (l_height - v_offset_Y) * in_x->w + (l_weight - v_offset_X)].diff += filter->data[filterKernel * filter->c * filter->h * filter->w + z * filter->h * filter->w + y * filter->w + x].val * out->data[Pic * out->c * out->h * out->w + filterKernel * out->h * out->w + height * out->w + width].diff;
+                                        filter->data[filterKernel * filter->c * filter->h * filter->w + z * filter->h * filter->w + y * filter->w + x].diff += in_x->data[Pic * in_x->c * in_x->h * in_x->w + z * in_x->h * in_x->w + (l_height - v_offset_Y) * in_x->w + (l_weight - v_offset_X)].val * out->data[Pic * out->c * out->h * out->w + filterKernel * out->h * out->w + height * out->w + width].diff;
+                                    }
+                                }
+                            }
+                        }
+                        //out->data[Pic * out->c * out->h * out->w + filterKernel * out->h * out->w + height * out->w + width].val = featureValue + bias;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        assert(0); // Current not support.
+    }
+    return 0;
+}
 #endif
 
 void Conv::forward()
@@ -1054,6 +1263,25 @@ void Conv::forward()
     tensor *Im_out = output;
     //printf("TYPE3_BACKWARD_conv_CHW\n");
     int ret = TYPE3_FORWARD_conv_CHW(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
+#elif TYPE4_BACKWARD_CONV
+    const uint16_t in_tensor_dim = m_m;
+    const uint16_t in_tensor_ch = m_c;
+    const uint16_t out_tensor_ch = m_out_c;
+    const uint16_t ker_dim = m_ks;
+    const uint16_t pad = m_pad;
+    const uint16_t stride = m_stride;
+    const uint16_t out_tensor_dim = m_out_x;
+    uint16_t i, j, k, l, m, n;
+    long in_row, in_col;
+    // NCHW
+    tensor *Im_in = input1;
+    tensor *filter = input2;
+    tensor *Im_out = output;
+    float bias;
+    int group;
+    //printf("TYPE4_BACKWARD_conv_CHW\n");
+    //int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias, int padding, int stride, int groups)
+    int ret = TYPE4_FORWARD_conv_CHW(Im_out, Im_in, filter, bias = 0.0, pad, stride, group = 1);
 #else
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
@@ -1136,6 +1364,24 @@ void Conv::backward()
     tensor *Im_out = output;
     //printf("TYPE3_BACKWARD_conv_CHW\n");
     int ret = TYPE3_BACKWARD_conv_CHW(Im_in, in_tensor_dim, in_tensor_ch, wt, out_tensor_ch, ker_dim, pad, stride, 0, 0, Im_out, out_tensor_dim);
+#elif TYPE4_BACKWARD_CONV
+    const uint16_t in_tensor_dim = m_m;
+    const uint16_t in_tensor_ch = m_c;
+    const uint16_t out_tensor_ch = m_out_c;
+    const uint16_t ker_dim = m_ks;
+    const uint16_t pad = m_pad;
+    const uint16_t stride = m_stride;
+    const uint16_t out_tensor_dim = m_out_x;
+    uint16_t i, j, k, l, m, n;
+    long in_row, in_col;
+    // NCHW
+    tensor *Im_in = input1;
+    tensor *filter = input2;
+    tensor *Im_out = output;
+    float bias;
+    int group;
+    //printf("TYPE3_BACKWARD_conv_CHW\n");
+    int ret = TYPE4_BACKWARD_conv_CHW(Im_out, Im_in, filter, bias = 0, pad, stride, group = 1);
 #else
     int c = m_c;
     int m = m_m;
@@ -2097,6 +2343,7 @@ tensor &tir_variable(std::vector<int> shape, std::string path)
 tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
 {
     extern Net net;
+
     tensor *out_tensor = &in_tensor;
     out_tensor->shape = p_shape;
     Reshape *reshape = new Reshape(*out_tensor, in_tensor, p_shape);
@@ -2104,14 +2351,30 @@ tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
     return *out_tensor;
 }
 
-tensor &tir_conv(tensor &in_tensor, tensor &weight, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
+tensor &tir_conv(tensor &in_tensor, tensor &filter, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     extern Net net;
     std::vector<int> shape;
-    //tensor *w = new tensor(shape = {out_ch, ker_dim, ker_dim});
-    //*weight = w;
-    tensor *out_tensor = new tensor(shape = {1 , out_ch, out_dim, out_dim});
-    Conv *conv = new Conv(*out_tensor, in_tensor, weight, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
+    int n, c, h, w;
+    int padding = pad;
+
+    if (padding == 1)
+    {
+        n = in_tensor.n;
+        c = filter.n;
+        h = ceil(((float)in_tensor.h) / ((float)stride));
+        w = ceil(((float)in_tensor.w) / ((float)stride));
+    }
+    else
+    {
+        n = in_tensor.n;
+        c = filter.n;
+        h = ceil(((float)(in_tensor.h - filter.h + 1)) / ((float)stride));
+        w = ceil(((float)(in_tensor.w - filter.w + 1)) / ((float)stride));
+    }
+    tensor *out_tensor = new tensor(shape = {n, c, h, w});
+    std::cout << "conv : " << n << " x " << c << " x " << h << " x " << w << std::endl;
+    Conv *conv = new Conv(*out_tensor, in_tensor, filter, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
     return *out_tensor;
 }
@@ -2121,25 +2384,23 @@ tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
     extern Net net;
     std::vector<int> shape;
     // out_tensor in
-    tensor *out_tensor;
-    int out_n, out_c, out_h, out_w;
+    int n, c, h, w;
     if (p_padding == 1)
     {
-        out_n = in_tensor.shape[0];
-        out_c = in_tensor.shape[1];
-        out_h = (int)(ceil((float)(in_tensor.shape[2])/(float)p_stride));
-        out_w = (int)(ceil((float)(in_tensor.shape[3])/(float)p_stride));
-        out_tensor = new tensor(shape = {out_n, out_c, out_h, out_w});
+        n = in_tensor.shape[0];
+        c = in_tensor.shape[1];
+        h = (int)(ceil((float)(in_tensor.shape[2]) / (float)p_stride));
+        w = (int)(ceil((float)(in_tensor.shape[3]) / (float)p_stride));
     }
     else
     {
-        out_n = in_tensor.shape[0];
-        out_c = in_tensor.shape[1];
-        out_h = ceil(((float)(in_tensor.shape[2] - p_size + 1))/((float)p_stride));
-        out_w = ceil(((float)(in_tensor.shape[3] - p_size + 1))/((float)p_stride));
-        out_tensor = new tensor(shape = {out_n, out_c, out_h, out_w});
+        n = in_tensor.shape[0];
+        c = in_tensor.shape[1];
+        h = ceil(((float)(in_tensor.shape[2] - p_size + 1)) / ((float)p_stride));
+        w = ceil(((float)(in_tensor.shape[3] - p_size + 1)) / ((float)p_stride));
     }
-    std::cout << "Max_pool_out_shape(NCHW) : " << out_n << ", " << out_c << ", " << out_h << ", " << out_w << std::endl;
+    tensor *out_tensor = new tensor(shape = {n, c, h, w});
+    std::cout << "max_pool : " << n << " x " << c << " x " << h << " x " << w << std::endl;
     //tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
     Max_pool *max_pool = new Max_pool(*out_tensor, in_tensor, p_size, p_padding, p_stride);
     net.AddLayer(max_pool);
@@ -2156,6 +2417,7 @@ tensor &tir_matmul(tensor &mk, tensor &kn)
     //tensor *kn = new tensor(shape = {k, n});
     //*weight = kn;
     assert(mk.shape[1] == kn.shape[0]);
+    std::cout << "matmul : " << mk.shape[0] << " x " << kn.shape[1] << std::endl;
     tensor *out_tensor = new tensor(shape = {mk.shape[0], kn.shape[1]});
     Matmul *matmul = new Matmul(*out_tensor, mk, kn, mk.shape[0], mk.shape[1], kn.shape[1]);
     net.AddLayer(matmul);
