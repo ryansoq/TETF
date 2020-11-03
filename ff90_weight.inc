@@ -1,9 +1,28 @@
-//[Epoch : 0 / 320], [Batch : 1], [iteration : 1000], [Loss : 0.0000000], [Accuracy : 93.4000015% ... success]
-//[Epoch : 0 / 320], [Batch : 1], [iteration : 2000], [Loss : 0.0000000], [Accuracy : 92.2500000% ... success]
-//[Epoch : 0 / 320], [Batch : 1], [iteration : 3000], [Loss : 0.0000000], [Accuracy : 92.8333359% ... success]
-//[Epoch : 0 / 320], [Batch : 1], [iteration : 4000], [Loss : 0.0000000], [Accuracy : 93.0250015% ... success]
-//[Epoch : 0 / 320], [Batch : 1], [iteration : 5000], [Loss : 0.0000000], [Accuracy : 93.1200027% ... success]
+//lr=0.01
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 1000], [Loss : 0.0057190], [Accuracy : 90.4000015% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 2000], [Loss : 0.0000038], [Accuracy : 90.7500000% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 3000], [Loss : 0.0000094], [Accuracy : 91.7666702% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 4000], [Loss : 0.0000254], [Accuracy : 92.0499954% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 5000], [Loss : 0.0026821], [Accuracy : 92.1599960% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 6000], [Loss : 0.0006210], [Accuracy : 92.1999969% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 7000], [Loss : 0.0261916], [Accuracy : 92.4142838% ... success]
+//[Epoch : 0 / 1024], [Batch : 1], [iteration : 8000], [Loss : 0.0020154], [Accuracy : 92.2999954% ... success]
 
+/*
+    // model
+    tensor &input = tir_external(shape = {1, 784});
+    tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
+    tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
+    tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
+    tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
+
+    tensor &o1 = tir_matmul(input, matmul_weight);
+    tensor &sig1 = tir_add(o1, add_weight);
+    tensor &sig_out1 = tir_relu(sig1);
+    tensor &o2 = tir_matmul(sig_out1, matmul1_weight);
+    tensor &sig2 = tir_add(o2, add1_weight);
+    tensor &output = tir_relu(sig2);
+*/
 unsigned char w_matmul_weight[] = {
 0xd1, 0x22, 0xdb, 0x3e, 0x50, 0x8d, 0x17, 0xbe, 0x79, 0xe9, 0x26, 0x3e, 
 0x37, 0x89, 0x41, 0x3e, 0x35, 0x5e, 0xba, 0x3e, 0xe1, 0x7a, 0xd4, 0xbe, 

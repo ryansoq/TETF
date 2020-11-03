@@ -17,9 +17,10 @@
 // Net class
 float START_QUANTIZATION = 100.0;
 float Accuracy;
-float lr = 0.001;
-float Acc_ok = 99.0;
+float lr = 0.01;
+float Acc_ok = 95.0;
 int global_num = 0;
+int tensor_num = 0;
 
 typedef int8_t q7_t;
 typedef uint8_t u8_t;
@@ -123,6 +124,7 @@ public:
     int n, c, h, w;
     std::vector<int> strides;
     uint64_t byte_offset;
+    std::string name;
 
     tensor()
     {
@@ -423,6 +425,25 @@ External::External(tensor &out, std::vector<int> pShape)
 {
     output = &out;
     shape = pShape;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("external");
+    nnCode.append("(");
+
+    nnCode.append("shape = [");
+    for (auto i = 0; i < shape.size(); i++)
+    {
+        if (i)
+            nnCode.append(", ");
+        nnCode.append(std::to_string(shape[i]));
+    }
+    nnCode.append("]");
+
+    nnCode.append(");\n");
+
+    std::cout << nnCode << std::endl;
 }
 
 class Variable : public opBase
@@ -443,6 +464,29 @@ Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
     output = &out;
     shape = pShape;
     save_path = pSave_path;
+
+    // NNEF codeGen
+    std::string op = "variable";
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append(op);
+    nnCode.append("(");
+
+    nnCode.append("shape = [");
+    for (auto i = 0; i < shape.size(); i++)
+    {
+        if (i)
+            nnCode.append(", ");
+        nnCode.append(std::to_string(shape[i]));
+    }
+    nnCode.append("]");
+
+    nnCode.append(", ");
+    nnCode.append("\"" + pSave_path + "\"");
+
+    nnCode.append(");\n");
+
+    std::cout << nnCode << std::endl;
 }
 
 class Reshape : public opBase
@@ -480,6 +524,8 @@ public:
     int m_stride;
     int m_size;
     int m_pad;
+    std::vector<int> index; // ref darknet opt
+    std::vector<int> out_index;
     Max_pool(tensor &out, tensor &a, int p_size, int p_padding, int p_stride);
     void forward();
     void backward();
@@ -583,6 +629,7 @@ void Max_pool::forward()
 
                     //for (int x = 0; x < size[0]; x++)
                     //for (int y = 0; y < size[1]; y++)
+                    int index_;
                     for (int z = 0; z < size; z++)
                         for (int t = 0; t < size; t++)
                         {
@@ -594,9 +641,14 @@ void Max_pool::forward()
                             {
                                 float value = input1->data[N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X)].val;
                                 if (MaxValue < value)
+                                {
                                     MaxValue = value;
+                                    index_ = N * in_c * in_h * in_w + C * in_h * in_w + (l_height - v_offset_Y) * in_w + (l_weight - v_offset_X);
+                                }
                             }
                         }
+                    index.push_back(index_);
+                    out_index.push_back(N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W);
                     output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
                 }
 }
@@ -606,7 +658,7 @@ void Max_pool::backward()
     //Run
     //tensor<float> out;
     //out.shape.resize(4);
-
+#if 0
     int v_offset_T = 0;
     int v_offset_Z = 0;
     int v_offset_Y = 0;
@@ -709,6 +761,12 @@ void Max_pool::backward()
                     //output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].val = MaxValue;
                     input1->data[index].diff += 1 * output->data[N * out_c * out_h * out_w + C * out_h * out_w + H * out_w + W].diff;
                 }
+#else // opt
+    for (auto i = 0; i < out_index.size(); i++)
+        input1->data[index[i]].diff += 1 * output->data[out_index[i]].diff;
+    index.clear();
+    out_index.clear();
+#endif
 }
 
 void Max_pool::update()
@@ -2336,6 +2394,7 @@ tensor &tir_external(std::vector<int> p_shape)
     std::cout << std::endl;
 
     tensor *out_tensor = new tensor(p_shape);
+    out_tensor->name = "external" + std::to_string(++tensor_num);
     External *external = new External(*out_tensor, p_shape);
     net.AddLayer(external);
     return *out_tensor;
@@ -2355,6 +2414,7 @@ tensor &tir_variable(std::vector<int> p_shape, std::string path)
     std::cout << std::endl;
 
     tensor *out_tensor = new tensor(p_shape);
+    out_tensor->name = "variable" + std::to_string(++tensor_num);
     Variable *variable = new Variable(*out_tensor, p_shape, path);
     net.AddLayer(variable);
     return *out_tensor;
@@ -2374,6 +2434,7 @@ tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
     std::cout << std::endl;
 
     tensor *out_tensor = &in_tensor;
+    out_tensor->name = "reshape" + std::to_string(++tensor_num);
     out_tensor->shape = p_shape;
     Reshape *reshape = new Reshape(*out_tensor, in_tensor, p_shape);
     net.AddLayer(reshape);
@@ -2402,6 +2463,7 @@ tensor &tir_conv(tensor &in_tensor, tensor &filter, int in_ch, int in_dim, int s
         w = ceil(((float)(in_tensor.w - filter.w + 1)) / ((float)stride));
     }
     tensor *out_tensor = new tensor(shape = {n, c, h, w});
+    out_tensor->name = "conv" + std::to_string(++tensor_num);
     std::cout << "conv : " << n << " x " << c << " x " << h << " x " << w << std::endl;
     Conv *conv = new Conv(*out_tensor, in_tensor, filter, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
@@ -2429,6 +2491,7 @@ tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
         w = ceil(((float)(in_tensor.shape[3] - p_size + 1)) / ((float)p_stride));
     }
     tensor *out_tensor = new tensor(shape = {n, c, h, w});
+    out_tensor->name = "max_pool" + std::to_string(++tensor_num);
     std::cout << "max_pool : " << n << " x " << c << " x " << h << " x " << w << std::endl;
     //tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
     Max_pool *max_pool = new Max_pool(*out_tensor, in_tensor, p_size, p_padding, p_stride);
@@ -2445,9 +2508,11 @@ tensor &tir_matmul(tensor &mk, tensor &kn)
     //mk.shape = {m, k};
     //tensor *kn = new tensor(shape = {k, n});
     //*weight = kn;
+
     assert(mk.shape[1] == kn.shape[0]);
     std::cout << "matmul : " << mk.shape[0] << " x " << kn.shape[1] << std::endl;
     tensor *out_tensor = new tensor(shape = {mk.shape[0], kn.shape[1]});
+    out_tensor->name = "matmul" + std::to_string(++tensor_num);
     Matmul *matmul = new Matmul(*out_tensor, mk, kn, mk.shape[0], mk.shape[1], kn.shape[1]);
     net.AddLayer(matmul);
     return *out_tensor;
@@ -2478,6 +2543,7 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
         assert(in_tensor.shape[i] == weight.shape[i]);
 
     tensor *out_tensor = new tensor(shape = in_tensor.shape);
+    out_tensor->name = "add" + std::to_string(++tensor_num);
     Add *add = new Add(*out_tensor, in_tensor, weight, in_tensor_size);
     net.AddLayer(add);
     return *out_tensor;
@@ -2502,6 +2568,7 @@ tensor &tir_sigmoid(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    out_tensor->name = "sigmoid" + std::to_string(++tensor_num);
     Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(sigmoid);
     return *out_tensor;
@@ -2526,6 +2593,7 @@ tensor &tir_relu(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    out_tensor->name = "relu" + std::to_string(++tensor_num);
     ReLU *relu = new ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(relu);
     return *out_tensor;
@@ -2550,6 +2618,7 @@ tensor &tir_leaky_relu(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    out_tensor->name = "leaky_relu" + std::to_string(++tensor_num);
     Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(leaky_relu);
     return *out_tensor;
@@ -2570,6 +2639,7 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 
     std::cout << std::endl;
     tensor *loss = new tensor(shape = {1});
+    loss->name = "loss_mse" + std::to_string(++tensor_num);
     Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
     net.AddLayer(loss_mse);
     return *loss;
@@ -2619,22 +2689,22 @@ int main()
     //tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &input = tir_external(shape = {1, 1, 28, 28});
-    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "weights");
-    tensor &matmul_weight = tir_variable(shape = {1960, 100}, label = "matmul_weight");
+    tensor &input = tir_external(shape = {1, 784});
+    //tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "weights");
+    tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
     //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
-    tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
-    tensor &max_pool = tir_max_pool(x, size = 2, pad = 1, stride = 2);
-    tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
-    tensor &o1 = tir_matmul(reshape, matmul_weight);
+    //tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
+    //tensor &max_pool = tir_max_pool(x, size = 2, pad = 1, stride = 2);
+    //tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
+    tensor &o1 = tir_matmul(input, matmul_weight);
     tensor &sig1 = tir_add(o1, add_weight);
     tensor &sig_out1 = tir_sigmoid(sig1);
     //tensor &x1 = tir_conv(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = tir_matmul(sig1, matmul1_weight);
+    tensor &o2 = tir_matmul(sig_out1, matmul1_weight);
     tensor &sig2 = tir_add(o2, add1_weight);
     tensor &output = tir_sigmoid(sig2);
     // ----------------------------
@@ -2642,12 +2712,12 @@ int main()
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = tir_loss_mse(output, answer);
-    /*
+
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
-    */
+
     // #######################################
     // # Training site
     // # set input, answer value
