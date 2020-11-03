@@ -2322,20 +2322,40 @@ void Net::print()
 // # Wrapper function
 // ---------------------------------------
 
-tensor &tir_external(std::vector<int> shape)
+tensor &tir_external(std::vector<int> p_shape)
 {
     extern Net net;
-    tensor *out_tensor = new tensor(shape);
-    External *external = new External(*out_tensor, shape);
+
+    std::cout << "external : ";
+    for (auto i = 0; i < p_shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << p_shape[i];
+    }
+    std::cout << std::endl;
+
+    tensor *out_tensor = new tensor(p_shape);
+    External *external = new External(*out_tensor, p_shape);
     net.AddLayer(external);
     return *out_tensor;
 }
 
-tensor &tir_variable(std::vector<int> shape, std::string path)
+tensor &tir_variable(std::vector<int> p_shape, std::string path)
 {
     extern Net net;
-    tensor *out_tensor = new tensor(shape);
-    Variable *variable = new Variable(*out_tensor, shape, path);
+
+    std::cout << "variable : ";
+    for (auto i = 0; i < p_shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << p_shape[i];
+    }
+    std::cout << std::endl;
+
+    tensor *out_tensor = new tensor(p_shape);
+    Variable *variable = new Variable(*out_tensor, p_shape, path);
     net.AddLayer(variable);
     return *out_tensor;
 }
@@ -2343,6 +2363,15 @@ tensor &tir_variable(std::vector<int> shape, std::string path)
 tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
 {
     extern Net net;
+
+    std::cout << "reshape : ";
+    for (auto i = 0; i < p_shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << p_shape[i];
+    }
+    std::cout << std::endl;
 
     tensor *out_tensor = &in_tensor;
     out_tensor->shape = p_shape;
@@ -2431,6 +2460,15 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
     int in_tensor_size = 1;
     int weight_size = 1;
 
+    std::cout << "add : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+    std::cout << std::endl;
+
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         in_tensor_size *= in_tensor.shape[i];
     for (auto i = 0; i < weight.shape.size(); i++)
@@ -2439,7 +2477,7 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         assert(in_tensor.shape[i] == weight.shape[i]);
 
-    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    tensor *out_tensor = new tensor(shape = in_tensor.shape);
     Add *add = new Add(*out_tensor, in_tensor, weight, in_tensor_size);
     net.AddLayer(add);
     return *out_tensor;
@@ -2449,6 +2487,15 @@ tensor &tir_sigmoid(tensor &in_tensor)
 {
     extern Net net;
     std::vector<int> shape;
+
+    std::cout << "sigmoid : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+    std::cout << std::endl;
 
     int in_tensor_size = 1;
     for (auto i = 0; i < in_tensor.shape.size(); i++)
@@ -2465,6 +2512,15 @@ tensor &tir_relu(tensor &in_tensor)
     extern Net net;
     std::vector<int> shape;
 
+    std::cout << "relu : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+    std::cout << std::endl;
+
     int in_tensor_size = 1;
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         in_tensor_size *= in_tensor.shape[i];
@@ -2480,6 +2536,15 @@ tensor &tir_leaky_relu(tensor &in_tensor)
     extern Net net;
     std::vector<int> shape;
 
+    std::cout << "leaky_relu : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+    std::cout << std::endl;
+
     int in_tensor_size = 1;
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         in_tensor_size *= in_tensor.shape[i];
@@ -2494,6 +2559,16 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 {
     extern Net net;
     std::vector<int> shape;
+
+    std::cout << "loss_mse : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+
+    std::cout << std::endl;
     tensor *loss = new tensor(shape = {1});
     Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
     net.AddLayer(loss_mse);
