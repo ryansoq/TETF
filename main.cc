@@ -12,7 +12,7 @@
 
 // Weight 93-94%
 //#include "weight.inc"
-#include "ff92_weight.inc"
+#include "ff90_weight.inc"
 
 // Net class
 float START_QUANTIZATION = 100.0;
