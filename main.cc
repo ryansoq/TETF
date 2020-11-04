@@ -1540,6 +1540,20 @@ Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
     m_m = m;
     m_k = k;
     m_n = n;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("matmul");
+    nnCode.append("(");
+
+    nnCode.append(a.name);
+    nnCode.append(", ");
+    nnCode.append(b.name);
+
+    nnCode.append(");\n");
+
+    std::cout << nnCode << std::endl;
 }
 
 void Matmul::forward()
@@ -1776,6 +1790,20 @@ Add::Add(tensor &out, tensor &a, tensor &b, int len)
     input1 = &a;
     input2 = &b;
     length = len;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("add");
+    nnCode.append("(");
+
+    nnCode.append(a.name);
+    nnCode.append(", ");
+    nnCode.append(b.name);
+
+    nnCode.append(");\n");
+
+    std::cout << nnCode << std::endl;
 }
 
 void Add::forward()
@@ -2061,6 +2089,18 @@ Sigmoid::Sigmoid(tensor &out, tensor &a, int len)
     output = &out;
     input1 = &a;
     length = len;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("sigmoid");
+    nnCode.append("(");
+
+    nnCode.append(a.name);
+
+    nnCode.append(");\n");
+
+    std::cout << nnCode << std::endl;
 }
 
 void Sigmoid::forward()
