@@ -418,7 +418,7 @@ public:
     void forward(){};
     void backward(){};
     void update(){};
-    void save(){};
+    void save();
 };
 
 External::External(tensor &out, std::vector<int> pShape)
@@ -442,8 +442,11 @@ External::External(tensor &out, std::vector<int> pShape)
     nnCode.append("]");
 
     nnCode.append(");\n");
+}
 
-    std::cout << nnCode << std::endl;
+void External::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 class Variable : public opBase
@@ -456,7 +459,7 @@ public:
     void forward(){};
     void backward(){};
     void update(){};
-    void save(){};
+    void save();
 };
 
 Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
@@ -485,8 +488,11 @@ Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
     nnCode.append("\"" + pSave_path + "\"");
 
     nnCode.append(");\n");
+}
 
-    std::cout << nnCode << std::endl;
+void Variable::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 class Reshape : public opBase
@@ -1530,6 +1536,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
@@ -1552,8 +1559,6 @@ Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
     nnCode.append(b.name);
 
     nnCode.append(");\n");
-
-    std::cout << nnCode << std::endl;
 }
 
 void Matmul::forward()
@@ -1755,6 +1760,11 @@ void Matmul::update()
     }
 }
 
+void Matmul::save()
+{
+    std::cout << "\t" << nnCode;
+}
+
 void node::printDiff(void){
     /*
     for (int i = 0; i < diffs.size(); i++)
@@ -1782,6 +1792,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 Add::Add(tensor &out, tensor &a, tensor &b, int len)
@@ -1802,8 +1813,6 @@ Add::Add(tensor &out, tensor &a, tensor &b, int len)
     nnCode.append(b.name);
 
     nnCode.append(");\n");
-
-    std::cout << nnCode << std::endl;
 }
 
 void Add::forward()
@@ -1924,6 +1933,11 @@ void Add::update()
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
     }
+}
+
+void Add::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 class ReLU : public opBase
@@ -2082,6 +2096,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 Sigmoid::Sigmoid(tensor &out, tensor &a, int len)
@@ -2099,8 +2114,6 @@ Sigmoid::Sigmoid(tensor &out, tensor &a, int len)
     nnCode.append(a.name);
 
     nnCode.append(");\n");
-
-    std::cout << nnCode << std::endl;
 }
 
 void Sigmoid::forward()
@@ -2170,6 +2183,11 @@ void Sigmoid::update()
     }
 }
 
+void Sigmoid::save()
+{
+    std::cout << "\t" << nnCode;
+}
+
 class Loss_MSE : public opBase
 {
 public:
@@ -2182,6 +2200,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 Loss_MSE::Loss_MSE(tensor &out, tensor &a, tensor &b, int len)
@@ -2308,6 +2327,11 @@ void Loss_MSE::update()
     }
 }
 
+void Loss_MSE::save()
+{
+    // not code-gen
+}
+
 // [1 * 3 * 2]
 void matmul(node *out, node *a, node *b, int m, int k, int n)
 {
@@ -2373,16 +2397,23 @@ public:
     {
         std::cout << "update, Base" << std::endl;
     }
+    virtual void save()
+    {
+        std::cout << "save, Base" << std::endl;
+    }
 };
 
 class Net : public netBase
 {
 public:
+    std::vector<std::string> input;
+    std::vector<std::string> output;
     std::list<opBase *> Layer;
     void AddLayer(opBase *);
     void forward();
     void backward();
     void update();
+    void save();
     void print();
 };
 
@@ -2410,6 +2441,34 @@ void Net::update()
         (*choose)->update();
 }
 
+void Net::save()
+{
+    // Codegen NNEF head and tail
+    std::cout << "version 1.0;" << std::endl;
+    std::cout << std::endl;
+    std::cout << "graph network";
+    std::cout << "( ";
+    for (auto i = 0; i < input.size(); i++)
+    {
+        std::cout << input[i];
+    }
+    std::cout << " )"; //intput
+    std::cout << "->";
+    std::cout << "( ";
+    for (auto i = 0; i < output.size(); i++)
+    {
+        std::cout << output[i];
+    }
+    std::cout << " )"; //output
+    std::cout << std::endl;
+    std::cout << "{\n";
+
+    for (std::list<opBase *>::iterator choose = Layer.begin(); choose != Layer.end(); ++choose)
+        (*choose)->save();
+
+    std::cout << "}\n";
+}
+
 void Net::print()
 {
     for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
@@ -2419,6 +2478,8 @@ void Net::print()
 // #######################################
 // # Wrapper function
 // ---------------------------------------
+
+Net net;
 
 tensor &tir_external(std::vector<int> p_shape)
 {
@@ -2437,6 +2498,7 @@ tensor &tir_external(std::vector<int> p_shape)
     out_tensor->name = "external" + std::to_string(++tensor_num);
     External *external = new External(*out_tensor, p_shape);
     net.AddLayer(external);
+    net.input.push_back(out_tensor->name);
     return *out_tensor;
 }
 
@@ -2682,10 +2744,9 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
     loss->name = "loss_mse" + std::to_string(++tensor_num);
     Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
     net.AddLayer(loss_mse);
+    net.output.push_back(in_tensor.name);
     return *loss;
 }
-
-Net net;
 
 int main()
 {
@@ -2757,7 +2818,7 @@ int main()
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
-
+    net.save();
     // #######################################
     // # Training site
     // # set input, answer value
@@ -2820,7 +2881,6 @@ int main()
 
         if (Accuracy >= Acc_ok)
         {
-
             printf("In check ... ok\n");
             Acc_check = true;
             matmul_weight.save_f2uc("matmul_weight");
