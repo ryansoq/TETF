@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <f2uc.h>
 #include <float.h> //max_pool
+#include <fstream>
 
 // Weight 93-94%
 //#include "weight.inc"
@@ -493,6 +494,19 @@ Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
 void Variable::save()
 {
     std::cout << "\t" << nnCode;
+    std::ofstream ofile;
+    ofile.open(save_path);
+
+    int length = 1;
+    for (auto i = 0; i < shape.size(); i++)
+        length *= shape[i];
+
+    float val;
+    for (auto i = 0; i < length; i++)
+    {
+        ofile << output->data[i].val << " ";
+    }
+    ofile.close();
 }
 
 class Reshape : public opBase
