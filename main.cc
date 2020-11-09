@@ -589,7 +589,7 @@ Max_pool::Max_pool(tensor &out, tensor &a, int size, int pad, int stride)
     // NNEF codeGen
     nnCode.append(out.name); // output
     nnCode.append(" = ");
-    nnCode.append("conv");
+    nnCode.append("max_pool");
     nnCode.append("(");
 
     nnCode.append(a.name);
@@ -2059,6 +2059,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 ReLU::ReLU(tensor &out, tensor &a, int len)
@@ -2066,7 +2067,23 @@ ReLU::ReLU(tensor &out, tensor &a, int len)
     output = &out;
     input1 = &a;
     length = len;
+
+    // NNEF codeGen
+    std::string op = "relu";
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append(op);
+    nnCode.append("(");
+    nnCode.append(a.name);
+    nnCode.append(");\n");
 }
+
+
+void ReLU::save()
+{
+    std::cout << "\t" << nnCode;
+}
+
 
 void ReLU::forward()
 {
@@ -2803,7 +2820,7 @@ tensor &tir_relu(tensor &in_tensor)
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         in_tensor_size *= in_tensor.shape[i];
 
-    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    tensor *out_tensor = new tensor(shape = in_tensor.shape);
     out_tensor->name = "relu" + std::to_string(++tensor_num);
     ReLU *relu = new ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(relu);
@@ -2908,7 +2925,8 @@ int main()
     //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
     tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
-    tensor &max_pool = tir_max_pool(conv, size = 2, pad = 1, stride = 2);
+    tensor &relu = tir_relu(conv);
+    tensor &max_pool = tir_max_pool(relu, size = 2, pad = 1, stride = 2);
     tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
     tensor &matmul = tir_matmul(reshape, matmul_weight);
     tensor &add = tir_add(matmul, add_weight);
@@ -2993,10 +3011,13 @@ int main()
         {
             printf("In check ... ok\n");
             Acc_check = true;
+/*
             matmul_weight.save_f2uc("matmul_weight");
             add_weight.save_f2uc("add_weight");
             matmul1_weight.save_f2uc("matmul1_weight");
             add1_weight.save_f2uc("add1_weight");
+*/
+            net.save();
             goto exit;
         }
     }
