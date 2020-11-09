@@ -13,13 +13,13 @@
 
 // Weight 93-94%
 //#include "weight.inc"
-#include "ff90_weight.inc"
+//#include "ff90_weight.inc"
 
 // Net class
 float START_QUANTIZATION = 100.0;
 float Accuracy;
 float lr = 0.01;
-float Acc_ok = 95.0;
+float Acc_ok = 99.0;
 int global_num = 0;
 int tensor_num = 0;
 
@@ -519,7 +519,7 @@ public:
     void forward();
     void backward(){};
     void update(){};
-    void save(){};
+    void save();
 };
 
 Reshape::Reshape(tensor &out, tensor &a, std::vector<int> p_shape)
@@ -527,6 +527,31 @@ Reshape::Reshape(tensor &out, tensor &a, std::vector<int> p_shape)
     output = &a;
     input1 = &a;
     shape = p_shape;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("Reshape");
+    nnCode.append("(");
+
+    nnCode.append(a.name); // input
+    nnCode.append(", ");
+
+    nnCode.append("shape = [");
+    for (auto i = 0; i < shape.size(); i++)
+    {
+        if (i)
+            nnCode.append(", ");
+        nnCode.append(std::to_string(shape[i]));
+    }
+    nnCode.append("]");
+
+    nnCode.append(");\n");
+}
+
+void Reshape::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 void Reshape::forward()
@@ -550,7 +575,7 @@ public:
     void forward();
     void backward();
     void update();
-    void save(){};
+    void save();
 };
 
 Max_pool::Max_pool(tensor &out, tensor &a, int size, int pad, int stride)
@@ -560,6 +585,41 @@ Max_pool::Max_pool(tensor &out, tensor &a, int size, int pad, int stride)
     m_size = size;
     m_pad = pad;
     m_stride = stride;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("conv");
+    nnCode.append("(");
+
+    nnCode.append(a.name);
+
+    // size
+    nnCode.append(", size = [1, 1, ");
+    nnCode.append(std::to_string(size));
+    nnCode.append(", ");
+    nnCode.append(std::to_string(size));
+    nnCode.append("]");
+    // pad
+    if (pad == 1)
+        nnCode.append(", padding = []");
+    else
+        assert(0);
+    // border
+    nnCode.append(", border = 'ignore'");
+    // stride
+    nnCode.append(", stride = [1, 1, ");
+    nnCode.append(std::to_string(stride));
+    nnCode.append(", ");
+    nnCode.append(std::to_string(stride));
+    nnCode.append("]");
+
+    nnCode.append(");\n");
+}
+
+void Max_pool::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 void Max_pool::forward()
@@ -828,6 +888,7 @@ public:
     void forward();
     void backward();
     void update();
+    void save();
 };
 
 Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride, int pad, int ks, int out_c, int out_x, int out_y)
@@ -844,6 +905,40 @@ Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride
     m_out_c = out_c;
     m_out_x = out_x;
     m_out_y = out_y;
+
+    // NNEF codeGen
+    nnCode.append(out.name); // output
+    nnCode.append(" = ");
+    nnCode.append("conv");
+    nnCode.append("(");
+
+    nnCode.append(a.name);
+    nnCode.append(", ");
+    nnCode.append(b.name);
+
+    // bias
+    nnCode.append(", bias = 0.0");
+    // pad
+    if (pad == 1)
+        nnCode.append(", padding = []");
+    else
+        assert(0);
+    // border
+    nnCode.append(", border = 'constant'");
+    // stride
+    nnCode.append(", stride  = [");
+    nnCode.append(std::to_string(stride));
+    nnCode.append(", ");
+    nnCode.append(std::to_string(stride));
+    nnCode.append("]");
+    // dilation
+    nnCode.append(", dilation = [1, 1]");
+    nnCode.append(");\n");
+}
+
+void Conv::save()
+{
+    std::cout << "\t" << nnCode;
 }
 
 int conv_HWC(tensor *Im_in,
@@ -2804,34 +2899,35 @@ int main()
     //tensor *add1_weight;
 
     // --------- NN model ---------
-    tensor &input = tir_external(shape = {1, 784});
-    //tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "weights");
-    tensor &matmul_weight = tir_variable(shape = {784, 100}, label = "matmul_weight");
+    tensor &input = tir_external(shape = {1, 1, 28, 28});
+    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "weights");
+    tensor &matmul_weight = tir_variable(shape = {1960, 100}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
     //tensor &conv1_weight = tir_variable(shape = {1, 1, 3, 3}, label = "weights1");
 
-    //tensor &x = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
-    //tensor &max_pool = tir_max_pool(x, size = 2, pad = 1, stride = 2);
-    //tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
-    tensor &o1 = tir_matmul(input, matmul_weight);
-    tensor &sig1 = tir_add(o1, add_weight);
-    tensor &sig_out1 = tir_sigmoid(sig1);
+    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
+    tensor &max_pool = tir_max_pool(conv, size = 2, pad = 1, stride = 2);
+    tensor &reshape = tir_reshape(max_pool, shape = {1, 1960});
+    tensor &matmul = tir_matmul(reshape, matmul_weight);
+    tensor &add = tir_add(matmul, add_weight);
+    tensor &sig = tir_sigmoid(add);
     //tensor &x1 = tir_conv(sig_out1, conv1_weight, in_ch = 1, in_dim = 10, stride = 1, pad = 1, ker_dim = 3, out_ch = 1, out_dim = 10);
-    tensor &o2 = tir_matmul(sig_out1, matmul1_weight);
-    tensor &sig2 = tir_add(o2, add1_weight);
-    tensor &output = tir_sigmoid(sig2);
+    tensor &matmul1 = tir_matmul(sig, matmul1_weight);
+    tensor &add2 = tir_add(matmul1, add1_weight);
+    tensor &output = tir_sigmoid(add2);
     // ----------------------------
 
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = tir_loss_mse(output, answer);
-
+    /*
     matmul_weight.load_uc2f(w_matmul_weight);
     add_weight.load_uc2f(w_add_weight);
     matmul1_weight.load_uc2f(w_matmul1_weight);
     add1_weight.load_uc2f(w_add1_weight);
+*/
     net.save();
     // #######################################
     // # Training site
