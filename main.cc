@@ -486,7 +486,7 @@ Variable::Variable(tensor &out, std::vector<int> pShape, std::string pSave_path)
     nnCode.append("]");
 
     nnCode.append(", ");
-    nnCode.append("\"" + pSave_path + "\"");
+    nnCode.append("label = \'" + pSave_path + "\'");
 
     nnCode.append(");\n");
 }
@@ -514,6 +514,7 @@ class Reshape : public opBase
 public:
     tensor *output;
     tensor *input1;
+
     std::vector<int> shape;
     Reshape(tensor &out, tensor &a, std::vector<int> shape);
     void forward();
@@ -524,7 +525,7 @@ public:
 
 Reshape::Reshape(tensor &out, tensor &a, std::vector<int> p_shape)
 {
-    output = &a;
+    output = &out;
     input1 = &a;
     shape = p_shape;
 
@@ -559,6 +560,7 @@ void Reshape::forward()
     tensor &out = *output;
     tensor &a = *input1;
     out.shape = shape;
+    out.data = a.data;
 }
 
 class Max_pool : public opBase
@@ -1667,6 +1669,9 @@ Matmul::Matmul(tensor &out, tensor &a, tensor &b, int m, int k, int n)
     nnCode.append(", ");
     nnCode.append(b.name);
 
+    nnCode.append(", ");
+    nnCode.append("transposeA = false, transposeB = false");
+
     nnCode.append(");\n");
 }
 
@@ -2659,7 +2664,7 @@ tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
     }
     std::cout << std::endl;
 
-    tensor *out_tensor = &in_tensor;
+    tensor *out_tensor = new tensor(p_shape);
     out_tensor->name = "reshape" + std::to_string(++tensor_num);
     out_tensor->shape = p_shape;
     Reshape *reshape = new Reshape(*out_tensor, in_tensor, p_shape);
@@ -2919,7 +2924,7 @@ int main()
     tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
-    tensor &conv1_weight = tir_variable(shape = {10, 10, 3, 3}, label = "conv1_weights1");
+    tensor &conv1_weight = tir_variable(shape = {10, 10, 3, 3}, label = "conv1_weights");
 
     tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
     tensor &relu = tir_relu(conv);
