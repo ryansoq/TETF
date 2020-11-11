@@ -2880,13 +2880,6 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 int main()
 {
     // #######################################
-    // # Tesing section
-    // ---------------------------------------
-    // ...
-    //std::vector<int> shape;
-    //tensor input(shape = {28, 28, 1});
-
-    // #######################################
     // # MNIST data informatiom
     // ---------------------------------------
 
@@ -2905,17 +2898,8 @@ int main()
     // ---------------------------------------
 
     int in_ch, in_dim, stride, pad, ker_dim, out_ch, out_dim, m, k, n, len, size;
-
     std::vector<int> shape;
     std::string label;
-    //tensor input(shape = {28, 28, 1});
-
-    //tensor *conv_weight;
-    //tensor *matmul_weight;
-    //tensor *add_weight;
-    //tensor *conv1_weight;
-    //tensor *matmul1_weight;
-    //tensor *add1_weight;
 
     // --------- NN model ---------
     tensor &input = tir_external(shape = {1, 1, 28, 28});
@@ -2944,12 +2928,7 @@ int main()
     // Mean square error
     tensor answer(shape = {10});
     tensor &loss = tir_loss_mse(output, answer);
-    /*
-    matmul_weight.load_uc2f(w_matmul_weight);
-    add_weight.load_uc2f(w_add_weight);
-    matmul1_weight.load_uc2f(w_matmul1_weight);
-    add1_weight.load_uc2f(w_add1_weight);
-*/
+
     net.save();
 #if 1
     // #######################################
@@ -2957,8 +2936,9 @@ int main()
     // # set input, answer value
     // # net forward  ->
     // #     backward <-
-    // #     update
+    // #     update   ^
     // ---------------------------------------
+
     int Correct = 0;
     int Error = 0;
     int test_num = 0;
@@ -3013,14 +2993,7 @@ int main()
 
         if (Accuracy >= Acc_ok)
         {
-            printf("In check ... ok\n");
             Acc_check = true;
-            /*
-            matmul_weight.save_f2uc("matmul_weight");
-            add_weight.save_f2uc("add_weight");
-            matmul1_weight.save_f2uc("matmul1_weight");
-            add1_weight.save_f2uc("add1_weight");
-*/
             net.save();
             goto exit;
         }
