@@ -1198,7 +1198,27 @@ int TYPE3_BACKWARD_conv_CHW(tensor *Im_in,
     }
     return 0;
 }
+
 #elif TYPE4_BACKWARD_CONV // NNEF-RTX
+std::vector<void *> free_ptr;
+
+inline node *im2col_get_pixel(tensor *im, int height, int width, int channels,
+                              int row, int col, int channel, int pad)
+{
+    row -= pad;
+    col -= pad;
+
+    if (row < 0 || col < 0 || row >= height || col >= width)
+    {
+        node *zero_node = 0;
+        zero_node = (node *)calloc(1, sizeof(node));
+        free_ptr.push_back(zero_node);
+        return zero_node;
+    }
+
+    return &im->data[col + width * (row + height * channel)];
+}
+
 int TYPE4_FORWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias, int padding, int stride, int groups)
 {
     //shape
@@ -1259,6 +1279,68 @@ int TYPE4_FORWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias
 
     if (groups == 1) //general convolution
     {
+#ifdef IM2COLxGEMM
+        int out_w, out_h;
+        int workspace_size;
+
+        out_w = out->h;
+        out_h = out->w;
+        workspace_size = out_h * out_w * filter->h * filter->h * in_x->c;
+        node **colD = 0;
+
+        if (!colD)
+            colD = (node **)calloc(workspace_size, sizeof(node *));
+
+        int c, h, w;
+
+        int height_col = out_h;
+        int width_col = out_w;
+        int channels_col = in_x->c * filter->h * filter->h;
+
+        for (int Pic = 0; Pic < inPic; Pic++)
+        {
+            for (c = 0; c < channels_col; ++c)
+            {
+                for (h = 0; h < height_col; ++h)
+                {
+                    for (w = 0; w < width_col; ++w)
+                    {
+                        int w_offset = c % filter->h;
+                        int h_offset = (c / filter->h) % filter->h;
+                        int c_im = c / filter->h / filter->h;
+                        int im_row = h_offset + h * stride;
+                        int im_col = w_offset + w * stride;
+                        int col_index = (c * height_col + h) * width_col + w;
+                        //int col_index = (h * width_col + w) * channels_col + c;
+                        colD[col_index] = im2col_get_pixel(in_x, in_x->h, in_x->w, in_x->c, im_row, im_col, c_im, pad);
+                    }
+                }
+            }
+
+            int m = filter->n;                         // input height N
+            int n = out_w * out_h;                     // filter width = number of filter = 9
+            int p = filter->c * filter->h * filter->w; // CHW = input width = filter height = channel*ksize*ksize
+
+            for (int i = 0; i < m; i++) //2
+            {
+                for (int j = 0; j < n; j++) //9
+                {
+                    float sum = 0.0;
+                    for (int k = 0; k < p; k++) //18
+                    {
+                        // [ik][kj]
+                        sum += filter->data[i * p + k].val * (*colD[k * n + j]).val;
+                    }
+                    out->data[i * n + j].val = sum + bias;
+                }
+            }
+        }
+        // free section
+        free(colD);
+        for (auto i = 0; i < free_ptr.size(); i++)
+            free(free_ptr[i]);
+        free_ptr.clear();
+#else
         for (int Pic = 0; Pic < inPic; Pic++)
         {
             for (int filterKernel = 0; filterKernel < filterKernelNum; filterKernel++) // 32
@@ -1291,12 +1373,12 @@ int TYPE4_FORWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias
                 }
             }
         }
+#endif
     }
     else
     {
         assert(0); // Current not support.
     }
-
     return 0;
 }
 
@@ -1360,6 +1442,70 @@ int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bia
 
     if (groups == 1) //general convolution
     {
+#ifdef IM2COLxGEMM
+        int out_w, out_h;
+        int workspace_size;
+
+        out_w = out->h;
+        out_h = out->w;
+        workspace_size = out_h * out_w * filter->h * filter->h * in_x->c;
+        node **colD = 0;
+
+        if (!colD)
+            colD = (node **)calloc(workspace_size, sizeof(node *));
+
+        int c, h, w;
+
+        int height_col = out_h;
+        int width_col = out_w;
+        int channels_col = in_x->c * filter->h * filter->h;
+
+        for (int Pic = 0; Pic < inPic; Pic++)
+        {
+            for (c = 0; c < channels_col; ++c)
+            {
+                for (h = 0; h < height_col; ++h)
+                {
+                    for (w = 0; w < width_col; ++w)
+                    {
+                        int w_offset = c % filter->h;
+                        int h_offset = (c / filter->h) % filter->h;
+                        int c_im = c / filter->h / filter->h;
+                        int im_row = h_offset + h * stride;
+                        int im_col = w_offset + w * stride;
+                        int col_index = (c * height_col + h) * width_col + w;
+                        //int col_index = (h * width_col + w) * channels_col + c;
+                        colD[col_index] = im2col_get_pixel(in_x, in_x->h, in_x->w, in_x->c, im_row, im_col, c_im, pad);
+                    }
+                }
+            }
+
+            int m = filter->n;                         // input height N
+            int n = out_w * out_h;                     // filter width = number of filter = 9
+            int p = filter->c * filter->h * filter->w; // CHW = input width = filter height = channel*ksize*ksize
+
+            for (int i = 0; i < m; i++) //2
+            {
+                for (int j = 0; j < n; j++) //9
+                {
+                    float sum = 0.0;
+                    for (int k = 0; k < p; k++) //18
+                    {
+                        // [ik][kj]
+                        //sum += filter->data[i * p + k].val * (*colD[k * n + j]).val;
+                        filter->data[i * p + k].diff += (*colD[k * n + j]).val * out->data[i * n + j].diff;
+                        (*colD[k * n + j]).diff += filter->data[i * p + k].val * out->data[i * n + j].diff;
+                    }
+                    //out->data[i * n + j].val = sum + bias;
+                }
+            }
+        }
+        // free section
+        free(colD);
+        for (auto i = 0; i < free_ptr.size(); i++)
+            free(free_ptr[i]);
+        free_ptr.clear();
+#else
         for (int Pic = 0; Pic < inPic; Pic++)
         {
             for (int filterKernel = 0; filterKernel < filterKernelNum; filterKernel++) // 32
@@ -1396,6 +1542,7 @@ int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bia
                 }
             }
         }
+#endif
     }
     else
     {
@@ -1597,18 +1744,7 @@ void Conv::update()
 
     assert(x.data.size() == (c * m * n));
     assert(w.data.size() == (m_out_c * m_c * ks * ks));
-    /*
-    if (Accuracy > Acc_ok)
-    {
-        unsigned char *ptr;
-        bool dump;
-        std::vector<float> temp;
-        for (auto i = 0; i < w.data.size(); i++)
-            temp.push_back(w.data[i].val);
-        float2uc(temp.data(), &ptr, w.data.size() * sizeof(float), dump = true, "CONV" + std::to_string(global_num));
-        global_num++;
-    }
-*/
+
     for (int i = 0; i < c * m * n; i++)
     {
         if (Accuracy > START_QUANTIZATION)
@@ -2960,7 +3096,11 @@ int main()
             }
             answer[target_value].val = 1;
 
+            // ---------------------------
             net.forward();
+            net.backward();
+            net.update();
+            // ---------------------------
 
             double max_value = -99999;
             int max_index = 0;
@@ -2978,9 +3118,6 @@ int main()
             else
                 Error++;
 
-            net.backward();
-            net.update();
-
             test_num++;
             if ((int)test_num % test_runs_count == 0)
             {
@@ -2991,7 +3128,7 @@ int main()
 
         bool Acc_check = false;
 
-        if (Accuracy >= Acc_ok)
+        if (Accuracy >= Acc_ok || e == 1)
         {
             Acc_check = true;
             net.save();
@@ -2999,6 +3136,7 @@ int main()
         }
     }
 #endif
+
 exit:
     return 0;
 }
