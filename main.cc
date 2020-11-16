@@ -924,7 +924,7 @@ Conv::Conv(tensor &out, tensor &a, tensor &b, int mc, int mm, int nn, int stride
     if (pad == 1)
         nnCode.append(", padding = []");
     else
-        assert(0);
+        nnCode.append(", padding = [(0, 0), (0, 0)]");
     // border
     nnCode.append(", border = 'constant'");
     // stride
@@ -2934,7 +2934,7 @@ tensor &tir_sigmoid(tensor &in_tensor)
     for (auto i = 0; i < in_tensor.shape.size(); i++)
         in_tensor_size *= in_tensor.shape[i];
 
-    tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
+    tensor *out_tensor = new tensor(shape = {shape = in_tensor.shape});
     out_tensor->name = "sigmoid" + std::to_string(++tensor_num);
     Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(sigmoid);
@@ -3038,21 +3038,46 @@ int main()
     std::string label;
 
     // --------- NN model ---------
+    /*
     tensor &input = tir_external(shape = {1, 1, 28, 28});
-    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "conv_weights");
-    tensor &matmul_weight = tir_variable(shape = {490, 100}, label = "matmul_weight");
-    tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
-    tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
+    tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
+    tensor &conv1_weight = tir_variable(shape = {16, 6, 5, 5}, label = "conv1_weight");
+    tensor &matmul_weight = tir_variable(shape = {784, 120}, label = "matmul_weight");
+    tensor &matmul1_weight = tir_variable(shape = {120, 10}, label = "matmul1_weight");
+    tensor &add_weight = tir_variable(shape = {1, 120}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
-    tensor &conv1_weight = tir_variable(shape = {10, 10, 3, 3}, label = "conv1_weights");
 
-    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
+    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 5, out_ch = 6, out_dim = 28);
     tensor &relu = tir_relu(conv);
     tensor &max_pool = tir_max_pool(relu, size = 2, pad = 1, stride = 2);
-    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 10, in_dim = 14, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 14);
+    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 6, in_dim = 14, stride = 1, pad = 1, ker_dim = 5, out_ch = 16, out_dim = 14);
     tensor &relu1 = tir_relu(conv1);
     tensor &max_pool1 = tir_max_pool(relu1, size = 2, pad = 1, stride = 2);
-    tensor &reshape = tir_reshape(max_pool1, shape = {1, 490});
+    tensor &reshape = tir_reshape(max_pool1, shape = {1, 784}); // #Flatten
+    tensor &matmul = tir_matmul(reshape, matmul_weight);
+    tensor &add = tir_add(matmul, add_weight);
+    tensor &sig = tir_relu(add);
+    tensor &matmul1 = tir_matmul(sig, matmul1_weight);
+    tensor &add2 = tir_add(matmul1, add1_weight);
+    tensor &output = tir_sigmoid(add2);
+    */
+
+    // LeNet
+    tensor &input = tir_external(shape = {1, 1, 28, 28});
+    tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
+    tensor &matmul_weight = tir_variable(shape = {400, 120}, label = "matmul_weight");
+    tensor &matmul1_weight = tir_variable(shape = {120, 10}, label = "matmul1_weight");
+    tensor &add_weight = tir_variable(shape = {1, 120}, label = "add_weight");
+    tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
+    tensor &conv1_weight = tir_variable(shape = {16, 6, 5, 5}, label = "conv1_weight");
+
+    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 5, out_ch = 6, out_dim = 28);
+    tensor &relu = tir_relu(conv);
+    tensor &max_pool = tir_max_pool(relu, size = 2, pad = 1, stride = 2);
+    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 6, in_dim = 14, stride = 1, pad = 0, ker_dim = 5, out_ch = 16, out_dim = 10);
+    tensor &relu1 = tir_relu(conv1);
+    tensor &max_pool1 = tir_max_pool(relu1, size = 2, pad = 1, stride = 2);
+    tensor &reshape = tir_reshape(max_pool1, shape = {1, 400});
     tensor &matmul = tir_matmul(reshape, matmul_weight);
     tensor &add = tir_add(matmul, add_weight);
     tensor &sig = tir_sigmoid(add);
@@ -3128,7 +3153,7 @@ int main()
 
         bool Acc_check = false;
 
-        if (Accuracy >= Acc_ok || e == 1)
+        if (Accuracy >= Acc_ok)
         {
             Acc_check = true;
             net.save();
