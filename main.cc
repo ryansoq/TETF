@@ -400,6 +400,10 @@ public:
     {
         std::cout << "update, Base" << std::endl;
     }
+    virtual void clear()
+    {
+        //std::cout << "clear, Base" << std::endl;
+    }
     virtual void save()
     {
         std::cout << "dump, Base" << std::endl;
@@ -577,6 +581,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -871,6 +876,19 @@ void Max_pool::update()
     }
 }
 
+void Max_pool::clear()
+{
+    int size = m_size;
+    int stride = m_stride;
+    int padding = m_pad;
+    tensor &x = *input1;
+
+    for (int i = 0; i < x.data.size(); i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+}
 class Conv : public opBase
 {
 public:
@@ -890,6 +908,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -1770,6 +1789,31 @@ void Conv::update()
     }
 }
 
+void Conv::clear()
+{
+    int c = m_c;
+    int m = m_m;
+    int n = m_n;
+    int ks = m_ks;
+    tensor &x = *input1;
+    tensor &w = *input2;
+
+    assert(x.data.size() == (c * m * n));
+    assert(w.data.size() == (m_out_c * m_c * ks * ks));
+
+    for (int i = 0; i < c * m * n; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+
+    for (int i = 0; i < m_out_c * ks * ks; i++)
+    {
+        w[i].diff = 0;
+        w[i].diffs.clear();
+    }
+}
+
 class Matmul : public opBase
 {
 public:
@@ -1783,6 +1827,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -1996,6 +2041,7 @@ void Matmul::update()
         }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
+        x[i].diffs.clear();
     }
 
     for (int i = 0; i < k * n; i++)
@@ -2007,6 +2053,32 @@ void Matmul::update()
         }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
+        w[i].diffs.clear();
+    }
+}
+
+void Matmul::clear()
+{
+    int m = m_m;
+    int n = m_n;
+    int k = m_k;
+    tensor &x = *input1;
+    tensor &w = *input2;
+    tensor &out = *output;
+
+    assert(x.data.size() == (m * k));
+    assert(w.data.size() == (k * n));
+
+    for (int i = 0; i < m * k; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+
+    for (int i = 0; i < k * n; i++)
+    {
+        w[i].diff = 0;
+        w[i].diffs.clear();
     }
 }
 
@@ -2042,6 +2114,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -2171,6 +2244,7 @@ void Add::update()
         }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
+        x[i].diffs.clear();
     }
 
     for (int i = 0; i < length; i++)
@@ -2182,6 +2256,29 @@ void Add::update()
         }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
+        w[i].diffs.clear();
+    }
+}
+
+void Add::clear()
+{
+    tensor &x = *input1;
+    tensor &w = *input2;
+    tensor &out = *output;
+
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+
+    for (int i = 0; i < length; i++)
+    {
+        w[i].diff = 0;
+        w[i].diffs.clear();
     }
 }
 
@@ -2200,6 +2297,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -2278,6 +2376,18 @@ void ReLU::update()
     }
 }
 
+void ReLU::clear()
+{
+    tensor &x = *input1;
+
+    assert(x.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+}
 class Leaky_ReLU : public opBase
 {
 public:
@@ -2288,6 +2398,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
 };
 
 Leaky_ReLU::Leaky_ReLU(tensor &out, tensor &a, int len)
@@ -2351,6 +2462,19 @@ void Leaky_ReLU::update()
     }
 }
 
+void Leaky_ReLU::clear()
+{
+    tensor &x = *input1;
+
+    assert(x.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+}
+
 class Sigmoid : public opBase
 {
 public:
@@ -2361,6 +2485,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -2445,6 +2570,20 @@ void Sigmoid::update()
         }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+}
+
+void Sigmoid::clear()
+{
+    tensor &x = *input1;
+
+    assert(x.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
     }
 }
 
@@ -2465,6 +2604,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
 };
 
@@ -2578,6 +2718,7 @@ void Loss_MSE::update()
         }
         x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
+        x[i].diffs.clear();
     }
 
     for (int i = 0; i < length; i++)
@@ -2589,6 +2730,29 @@ void Loss_MSE::update()
         }
         w[i].val = w[i].val - lr * w[i].diff;
         w[i].diff = 0;
+        w[i].diffs.clear();
+    }
+}
+
+void Loss_MSE::clear()
+{
+    tensor &x = *input1;
+    tensor &w = *input2;
+    tensor &out = *output;
+
+    assert(x.data.size() == length);
+    assert(w.data.size() == length);
+
+    for (int i = 0; i < length; i++)
+    {
+        x[i].diff = 0;
+        x[i].diffs.clear();
+    }
+
+    for (int i = 0; i < length; i++)
+    {
+        w[i].diff = 0;
+        w[i].diffs.clear();
     }
 }
 
@@ -2678,6 +2842,7 @@ public:
     void forward();
     void backward();
     void update();
+    void clear();
     void save();
     void print();
 };
@@ -2704,6 +2869,12 @@ void Net::update()
 {
     for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
         (*choose)->update();
+}
+
+void Net::clear()
+{
+    for (std::list<opBase *>::reverse_iterator choose = Layer.rbegin(); choose != Layer.rend(); ++choose)
+        (*choose)->clear();
 }
 
 void Net::save()
@@ -3040,28 +3211,27 @@ int main()
     // --------- NN model ---------
     /*
     tensor &input = tir_external(shape = {1, 1, 28, 28});
-    tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
-    tensor &conv1_weight = tir_variable(shape = {16, 6, 5, 5}, label = "conv1_weight");
-    tensor &matmul_weight = tir_variable(shape = {784, 120}, label = "matmul_weight");
-    tensor &matmul1_weight = tir_variable(shape = {120, 10}, label = "matmul1_weight");
-    tensor &add_weight = tir_variable(shape = {1, 120}, label = "add_weight");
+    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "conv_weights");
+    tensor &matmul_weight = tir_variable(shape = {490, 100}, label = "matmul_weight");
+    tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
+    tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
+    tensor &conv1_weight = tir_variable(shape = {10, 10, 3, 3}, label = "conv1_weights");
 
-    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 5, out_ch = 6, out_dim = 28);
+    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
     tensor &relu = tir_relu(conv);
     tensor &max_pool = tir_max_pool(relu, size = 2, pad = 1, stride = 2);
-    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 6, in_dim = 14, stride = 1, pad = 1, ker_dim = 5, out_ch = 16, out_dim = 14);
+    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 10, in_dim = 14, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 14);
     tensor &relu1 = tir_relu(conv1);
     tensor &max_pool1 = tir_max_pool(relu1, size = 2, pad = 1, stride = 2);
-    tensor &reshape = tir_reshape(max_pool1, shape = {1, 784}); // #Flatten
+    tensor &reshape = tir_reshape(max_pool1, shape = {1, 490});
     tensor &matmul = tir_matmul(reshape, matmul_weight);
     tensor &add = tir_add(matmul, add_weight);
-    tensor &sig = tir_relu(add);
+    tensor &sig = tir_sigmoid(add);
     tensor &matmul1 = tir_matmul(sig, matmul1_weight);
     tensor &add2 = tir_add(matmul1, add1_weight);
     tensor &output = tir_sigmoid(add2);
-    */
-
+*/
     // LeNet
     tensor &input = tir_external(shape = {1, 1, 28, 28});
     tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
@@ -3151,7 +3321,8 @@ int main()
             }
         }
 
-        // testing
+// testing
+#if 1
         int tCorrect = 0;
         int tError = 0;
         for (unsigned int i = 0; i < 1000; i++)
@@ -3166,7 +3337,10 @@ int main()
             }
             answer[target_value].val = 1;
 
+            // ---------------------------
             net.forward();
+            net.clear();
+            // ---------------------------
 
             double max_value = -99999;
             int max_index = 0;
@@ -3187,10 +3361,10 @@ int main()
             Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
         }
         std::cout << "[Testing : " << Accuracy << "% ... success]" << std::endl;
-
+#endif
         bool Acc_check = false;
 
-        if (Accuracy >= Acc_ok || e == 0)
+        if (Accuracy >= Acc_ok)
         {
             Acc_check = true;
             net.save();
