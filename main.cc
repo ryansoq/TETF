@@ -3151,9 +3151,46 @@ int main()
             }
         }
 
+        // testing
+        int tCorrect = 0;
+        int tError = 0;
+        for (unsigned int i = 0; i < 1000; i++)
+        {
+            for (unsigned int j = 0; j < dataset.test_images[i].size(); j++)
+                input[j].val = ((float)(unsigned int)dataset.test_images[i][j]) / 255;
+
+            int target_value = (unsigned int)dataset.test_labels[i];
+            for (int k = 0; k < 10; k++)
+            {
+                answer[k].val = 0;
+            }
+            answer[target_value].val = 1;
+
+            net.forward();
+
+            double max_value = -99999;
+            int max_index = 0;
+            for (int k = 0; k < 10; k++)
+            {
+                if (output[k].val > max_value)
+                {
+                    max_value = output[k].val;
+                    max_index = k;
+                }
+            }
+
+            if (max_index == target_value)
+                tCorrect++;
+            else
+                tError++;
+
+            Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
+        }
+        std::cout << "[Testing : " << Accuracy << "% ... success]" << std::endl;
+
         bool Acc_check = false;
 
-        if (Accuracy >= Acc_ok)
+        if (Accuracy >= Acc_ok || e == 0)
         {
             Acc_check = true;
             net.save();
