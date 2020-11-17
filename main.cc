@@ -3184,6 +3184,52 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
     return *loss;
 }
 
+float test_acc(Net &net, mnist::MNIST_dataset<std::vector, std::vector<uint8_t>, uint8_t> &dataset, tensor &input, tensor &output, tensor &answer)
+{
+    int tCorrect = 0;
+    int tError = 0;
+    float Accuracy;
+
+    for (unsigned int i = 0; i < 1000; i++)
+    {
+        for (unsigned int j = 0; j < dataset.test_images[i].size(); j++)
+            input[j].val = ((float)(unsigned int)dataset.test_images[i][j]) / 255;
+
+        int target_value = (unsigned int)dataset.test_labels[i];
+        for (int k = 0; k < 10; k++)
+        {
+            answer[k].val = 0;
+        }
+        answer[target_value].val = 1;
+
+        // ---------------------------
+        net.forward();
+        net.clear();
+        // ---------------------------
+
+        double max_value = -99999;
+        int max_index = 0;
+        for (int k = 0; k < 10; k++)
+        {
+            if (output[k].val > max_value)
+            {
+                max_value = output[k].val;
+                max_index = k;
+            }
+        }
+
+        if (max_index == target_value)
+            tCorrect++;
+        else
+            tError++;
+
+        Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
+    }
+
+    std::cout << "[Testing : " << Accuracy << "% ... success]" << std::endl;
+    return Accuracy;
+}
+
 int main()
 {
     // #######################################
@@ -3209,29 +3255,6 @@ int main()
     std::string label;
 
     // --------- NN model ---------
-    /*
-    tensor &input = tir_external(shape = {1, 1, 28, 28});
-    tensor &conv_weight = tir_variable(shape = {10, 1, 3, 3}, label = "conv_weights");
-    tensor &matmul_weight = tir_variable(shape = {490, 100}, label = "matmul_weight");
-    tensor &matmul1_weight = tir_variable(shape = {100, 10}, label = "matmul1_weight");
-    tensor &add_weight = tir_variable(shape = {1, 100}, label = "add_weight");
-    tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
-    tensor &conv1_weight = tir_variable(shape = {10, 10, 3, 3}, label = "conv1_weights");
-
-    tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 28);
-    tensor &relu = tir_relu(conv);
-    tensor &max_pool = tir_max_pool(relu, size = 2, pad = 1, stride = 2);
-    tensor &conv1 = tir_conv(max_pool, conv1_weight, in_ch = 10, in_dim = 14, stride = 1, pad = 1, ker_dim = 3, out_ch = 10, out_dim = 14);
-    tensor &relu1 = tir_relu(conv1);
-    tensor &max_pool1 = tir_max_pool(relu1, size = 2, pad = 1, stride = 2);
-    tensor &reshape = tir_reshape(max_pool1, shape = {1, 490});
-    tensor &matmul = tir_matmul(reshape, matmul_weight);
-    tensor &add = tir_add(matmul, add_weight);
-    tensor &sig = tir_sigmoid(add);
-    tensor &matmul1 = tir_matmul(sig, matmul1_weight);
-    tensor &add2 = tir_add(matmul1, add1_weight);
-    tensor &output = tir_sigmoid(add2);
-*/
     // LeNet
     tensor &input = tir_external(shape = {1, 1, 28, 28});
     tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
@@ -3323,44 +3346,7 @@ int main()
 
 // testing
 #if 1
-        int tCorrect = 0;
-        int tError = 0;
-        for (unsigned int i = 0; i < 1000; i++)
-        {
-            for (unsigned int j = 0; j < dataset.test_images[i].size(); j++)
-                input[j].val = ((float)(unsigned int)dataset.test_images[i][j]) / 255;
-
-            int target_value = (unsigned int)dataset.test_labels[i];
-            for (int k = 0; k < 10; k++)
-            {
-                answer[k].val = 0;
-            }
-            answer[target_value].val = 1;
-
-            // ---------------------------
-            net.forward();
-            net.clear();
-            // ---------------------------
-
-            double max_value = -99999;
-            int max_index = 0;
-            for (int k = 0; k < 10; k++)
-            {
-                if (output[k].val > max_value)
-                {
-                    max_value = output[k].val;
-                    max_index = k;
-                }
-            }
-
-            if (max_index == target_value)
-                tCorrect++;
-            else
-                tError++;
-
-            Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
-        }
-        std::cout << "[Testing : " << Accuracy << "% ... success]" << std::endl;
+        Accuracy = test_acc(net, dataset, input, output, answer);
 #endif
         bool Acc_check = false;
 
