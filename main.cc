@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES // [FIX #6] Needed for M_PI on some compilers
 #include <iostream>
 #include <cmath>
 #include <unistd.h>
@@ -15,13 +16,18 @@
 //#include "weight.inc"
 //#include "ff90_weight.inc"
 
-// Net class
-float START_QUANTIZATION = 100.0;
-float Accuracy;
-float lr = 0.01;
-float Acc_ok = 99.0;
-int global_num = 0;
-int tensor_num = 0;
+// [FIX #7] Moved global variables into a config struct to avoid global state
+struct TrainConfig {
+    float START_QUANTIZATION = 100.0;
+    float Accuracy = 0.0;
+    float lr = 0.01;
+    float Acc_ok = 99.0;
+    int global_num = 0;
+    int tensor_num = 0;
+};
+
+// Single global config instance (minimally invasive refactor)
+TrainConfig cfg;
 
 typedef int8_t q7_t;
 typedef uint8_t u8_t;
@@ -147,9 +153,27 @@ public:
 
         data.resize(shape_size);
 
+        // [FIX #6] Better weight initialization using Xavier (Glorot) uniform
+        // For He init on conv layers, use init_he() after construction
         srand((int)time(0) + rand());
+        float fan_in = (ndim >= 2) ? shape_size / shape[0] : shape_size;
+        float fan_out = (ndim >= 2) ? shape_size / shape[ndim-1] : shape_size;
+        float limit = sqrt(6.0f / (fan_in + fan_out)); // Xavier uniform
         for (int i = 0; i < shape_size; i++)
-            data[i].val = rand() % 1000 * 0.001 - 0.5;
+            data[i].val = ((float)rand() / RAND_MAX) * 2.0f * limit - limit;
+    }
+
+    // [FIX #6] He initialization for conv layers (call after construction)
+    void init_he()
+    {
+        int fan_in = data.size() / shape[0]; // shape[0] = num output filters
+        float stddev = sqrt(2.0f / fan_in);
+        for (size_t i = 0; i < data.size(); i++) {
+            // Box-Muller transform for normal distribution
+            float u1 = ((float)rand() + 1.0f) / ((float)RAND_MAX + 1.0f);
+            float u2 = ((float)rand() + 1.0f) / ((float)RAND_MAX + 1.0f);
+            data[i].val = stddev * sqrt(-2.0f * log(u1)) * cos(2.0f * M_PI * u2);
+        }
     }
 
     ~tensor()
@@ -716,7 +740,7 @@ void Max_pool::forward()
 
                     //for (int x = 0; x < size[0]; x++)
                     //for (int y = 0; y < size[1]; y++)
-                    int index_;
+                    int index_ = 0; // [FIX #1] Initialize to 0 to prevent UB when all pixels are skipped by padding
                     for (int z = 0; z < size; z++)
                         for (int t = 0; t < size; t++)
                         {
@@ -858,19 +882,17 @@ void Max_pool::backward()
 
 void Max_pool::update()
 {
-    int size = m_size;
-    int stride = m_stride;
-    int padding = m_pad;
+    // [FIX #4] MaxPool has no trainable weights. update() should only clear diffs,
+    // not apply SGD to input activations (which corrupts upstream layer outputs).
     tensor &x = *input1;
 
     for (int i = 0; i < x.data.size(); i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
@@ -1229,8 +1251,11 @@ inline node *im2col_get_pixel(tensor *im, int height, int width, int channels,
 
     if (row < 0 || col < 0 || row >= height || col >= width)
     {
-        node *zero_node = 0;
-        zero_node = (node *)calloc(1, sizeof(node));
+        // [FIX #2] Use new instead of calloc - calloc doesn't call constructors
+        // for C++ objects with std::string/std::vector members → UB
+        node *zero_node = new node();
+        zero_node->val = 0.0f;
+        zero_node->diff = 0.0f;
         free_ptr.push_back(zero_node);
         return zero_node;
     }
@@ -1357,7 +1382,7 @@ int TYPE4_FORWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias
         // free section
         free(colD);
         for (auto i = 0; i < free_ptr.size(); i++)
-            free(free_ptr[i]);
+            delete static_cast<node*>(free_ptr[i]); // [FIX #2] Use delete to match new
         free_ptr.clear();
 #else
         for (int Pic = 0; Pic < inPic; Pic++)
@@ -1522,7 +1547,7 @@ int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bia
         // free section
         free(colD);
         for (auto i = 0; i < free_ptr.size(); i++)
-            free(free_ptr[i]);
+            delete static_cast<node*>(free_ptr[i]); // [FIX #2] Use delete to match new
         free_ptr.clear();
 #else
         for (int Pic = 0; Pic < inPic; Pic++)
@@ -1622,7 +1647,10 @@ void Conv::forward()
     int group;
     //printf("TYPE4_BACKWARD_conv_CHW\n");
     //int TYPE4_BACKWARD_conv_CHW(tensor *out, tensor *in_x, tensor *filter, float bias, int padding, int stride, int groups)
-    int ret = TYPE4_FORWARD_conv_CHW(Im_out, Im_in, filter, bias = 0.0, pad, stride, group = 1);
+    // [FIX #8] Assign bias/group before passing to avoid undefined behavior
+    bias = 0.0f;
+    group = 1;
+    int ret = TYPE4_FORWARD_conv_CHW(Im_out, Im_in, filter, bias, pad, stride, group);
 #else
     const uint16_t in_tensor_dim = m_m;
     const uint16_t in_tensor_ch = m_c;
@@ -1722,7 +1750,10 @@ void Conv::backward()
     float bias;
     int group;
     //printf("TYPE3_BACKWARD_conv_CHW\n");
-    int ret = TYPE4_BACKWARD_conv_CHW(Im_out, Im_in, filter, bias = 0, pad, stride, group = 1);
+    // [FIX #8] Assign bias/group before passing
+    bias = 0.0f;
+    group = 1;
+    int ret = TYPE4_BACKWARD_conv_CHW(Im_out, Im_in, filter, bias, pad, stride, group);
 #else
     int c = m_c;
     int m = m_m;
@@ -1742,7 +1773,7 @@ void Conv::backward()
         }
     }
 
-    for (int i = 0; i < m_out_c * ks * ks; i++)
+    for (int i = 0; i < m_out_c * m_c * ks * ks; i++)
     {
         for (int j = 0; j < w[i].diffs.size(); j++)
         {
@@ -1766,24 +1797,25 @@ void Conv::update()
 
     for (int i = 0; i < c * m * n; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
 
-    for (int i = 0; i < m_out_c * ks * ks; i++)
+    // [FIX #3] Must iterate over m_out_c * m_c * ks * ks weights, not just m_out_c * ks * ks
+    for (int i = 0; i < m_out_c * m_c * ks * ks; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             w[i].f2q();
             w[i].q2f();
         }
-        w[i].val = w[i].val - lr * w[i].diff;
+        w[i].val = w[i].val - cfg.lr * w[i].diff;
         w[i].diff = 0;
         w[i].diffs.clear();
     }
@@ -1807,7 +1839,7 @@ void Conv::clear()
         x[i].diffs.clear();
     }
 
-    for (int i = 0; i < m_out_c * ks * ks; i++)
+    for (int i = 0; i < m_out_c * m_c * ks * ks; i++)
     {
         w[i].diff = 0;
         w[i].diffs.clear();
@@ -2021,37 +2053,37 @@ void Matmul::update()
     assert(x.data.size() == (m * k));
     assert(w.data.size() == (k * n));
     /*
-    if (Accuracy > Acc_ok)
+    if (cfg.Accuracy > cfg.Acc_ok)
     {
         unsigned char *ptr;
         bool dump;
         std::vector<float> temp;
         for (auto i = 0; i < w.data.size(); i++)
             temp.push_back(w.data[i].val);
-        float2uc(temp.data(), &ptr, w.data.size() * sizeof(float), dump = true, "MATMUL" + std::to_string(global_num));
-        global_num++
+        float2uc(temp.data(), &ptr, w.data.size() * sizeof(float), dump = true, "MATMUL" + std::to_string(cfg.global_num));
+        cfg.global_num++
     }
 */
     for (int i = 0; i < m * k; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
 
     for (int i = 0; i < k * n; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             w[i].f2q();
             w[i].q2f();
         }
-        w[i].val = w[i].val - lr * w[i].diff;
+        w[i].val = w[i].val - cfg.lr * w[i].diff;
         w[i].diff = 0;
         w[i].diffs.clear();
     }
@@ -2177,15 +2209,15 @@ void Add::backward()
     assert(x.data.size() == length);
     assert(w.data.size() == length);
     /*
-    if (Accuracy > Acc_ok)
+    if (cfg.Accuracy > cfg.Acc_ok)
     {
         unsigned char *ptr;
         bool dump;
         std::vector<float> temp;
         for (auto i = 0; i < w.data.size(); i++)
             temp.push_back(w.data[i].val);
-        float2uc(temp.data(), &ptr, w.data.size() * sizeof(float), dump = true, "ADD" + std::to_string(global_num));
-        global_num++
+        float2uc(temp.data(), &ptr, w.data.size() * sizeof(float), dump = true, "ADD" + std::to_string(cfg.global_num));
+        cfg.global_num++
     }
 */
     for (int i = 0; i < length; i++)
@@ -2237,24 +2269,24 @@ void Add::update()
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             w[i].f2q();
             w[i].q2f();
         }
-        w[i].val = w[i].val - lr * w[i].diff;
+        w[i].val = w[i].val - cfg.lr * w[i].diff;
         w[i].diff = 0;
         w[i].diffs.clear();
     }
@@ -2365,12 +2397,12 @@ void ReLU::update()
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
@@ -2451,12 +2483,12 @@ void Leaky_ReLU::update()
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
@@ -2563,12 +2595,12 @@ void Sigmoid::update()
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
@@ -2711,24 +2743,24 @@ void Loss_MSE::update()
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             x[i].f2q();
             x[i].q2f();
         }
-        x[i].val = x[i].val - lr * x[i].diff;
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
         x[i].diff = 0;
         x[i].diffs.clear();
     }
 
     for (int i = 0; i < length; i++)
     {
-        if (Accuracy > START_QUANTIZATION)
+        if (cfg.Accuracy > cfg.START_QUANTIZATION)
         {
             w[i].f2q();
             w[i].q2f();
         }
-        w[i].val = w[i].val - lr * w[i].diff;
+        w[i].val = w[i].val - cfg.lr * w[i].diff;
         w[i].diff = 0;
         w[i].diffs.clear();
     }
@@ -2757,6 +2789,108 @@ void Loss_MSE::clear()
 }
 
 void Loss_MSE::save()
+{
+    // not code-gen
+}
+
+// [FIX #5] Softmax + Cross-Entropy loss for classification (replaces Sigmoid + MSE)
+class Loss_CrossEntropy : public opBase
+{
+public:
+    tensor *output;   // scalar loss
+    tensor *input1;   // logits (pre-softmax)
+    tensor *input2;   // one-hot target
+    int length;
+    std::vector<float> softmax_cache; // store softmax output for backward
+
+    Loss_CrossEntropy(tensor &out, tensor &a, tensor &b, int len);
+    void forward();
+    void backward();
+    void update();
+    void clear();
+    void save();
+};
+
+Loss_CrossEntropy::Loss_CrossEntropy(tensor &out, tensor &a, tensor &b, int len)
+{
+    output = &out;
+    input1 = &a;
+    input2 = &b;
+    length = len;
+}
+
+void Loss_CrossEntropy::forward()
+{
+    tensor &loss = *output;
+    tensor &logits = *input1;
+    tensor &target = *input2;
+
+    // Softmax: find max for numerical stability
+    float max_val = logits[0].val;
+    for (int i = 1; i < length; i++)
+        if (logits[i].val > max_val) max_val = logits[i].val;
+
+    softmax_cache.resize(length);
+    float sum_exp = 0.0f;
+    for (int i = 0; i < length; i++) {
+        softmax_cache[i] = exp(logits[i].val - max_val);
+        sum_exp += softmax_cache[i];
+    }
+    for (int i = 0; i < length; i++)
+        softmax_cache[i] /= sum_exp;
+
+    // Cross-entropy: L = -sum(target * log(softmax))
+    float ce = 0.0f;
+    for (int i = 0; i < length; i++) {
+        if (target[i].val > 0.0f)
+            ce -= target[i].val * log(softmax_cache[i] + 1e-12f);
+    }
+
+    loss[0].val = ce;
+    loss[0].diff = 1;
+
+    // Set gradients: dL/d(logits_i) = softmax_i - target_i
+    for (int i = 0; i < length; i++) {
+        logits[i].setDiff(softmax_cache[i] - target[i].val, &loss[0]);
+    }
+}
+
+void Loss_CrossEntropy::backward()
+{
+    tensor &x = *input1;
+    for (int i = 0; i < length; i++) {
+        while (!x[i].diffs.empty()) {
+            std::pair<float, node *> pop = x[i].diffs.back();
+            x[i].diff += pop.first * pop.second->diff;
+            x[i].diffs.pop_back();
+        }
+    }
+}
+
+void Loss_CrossEntropy::update()
+{
+    tensor &x = *input1;
+    tensor &w = *input2;
+
+    for (int i = 0; i < length; i++) {
+        if (cfg.Accuracy > cfg.START_QUANTIZATION) { x[i].f2q(); x[i].q2f(); }
+        x[i].val = x[i].val - cfg.lr * x[i].diff;
+        x[i].diff = 0; x[i].diffs.clear();
+    }
+    for (int i = 0; i < length; i++) {
+        w[i].diff = 0; w[i].diffs.clear();
+    }
+}
+
+void Loss_CrossEntropy::clear()
+{
+    tensor &x = *input1;
+    tensor &w = *input2;
+    for (int i = 0; i < length; i++) { x[i].diff = 0; x[i].diffs.clear(); }
+    for (int i = 0; i < length; i++) { w[i].diff = 0; w[i].diffs.clear(); }
+}
+
+void Loss_CrossEntropy::save()
 {
     // not code-gen
 }
@@ -2931,7 +3065,7 @@ tensor &tir_external(std::vector<int> p_shape)
     std::cout << std::endl;
 
     tensor *out_tensor = new tensor(p_shape);
-    out_tensor->name = "external" + std::to_string(++tensor_num);
+    out_tensor->name = "external" + std::to_string(++cfg.tensor_num);
     External *external = new External(*out_tensor, p_shape);
     net.AddLayer(external);
     net.input.push_back(out_tensor->name);
@@ -2952,7 +3086,7 @@ tensor &tir_variable(std::vector<int> p_shape, std::string path)
     std::cout << std::endl;
 
     tensor *out_tensor = new tensor(p_shape);
-    out_tensor->name = "variable" + std::to_string(++tensor_num);
+    out_tensor->name = "variable" + std::to_string(++cfg.tensor_num);
     Variable *variable = new Variable(*out_tensor, p_shape, path);
     net.AddLayer(variable);
     return *out_tensor;
@@ -2972,7 +3106,7 @@ tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
     std::cout << std::endl;
 
     tensor *out_tensor = new tensor(p_shape);
-    out_tensor->name = "reshape" + std::to_string(++tensor_num);
+    out_tensor->name = "reshape" + std::to_string(++cfg.tensor_num);
     out_tensor->shape = p_shape;
     Reshape *reshape = new Reshape(*out_tensor, in_tensor, p_shape);
     net.AddLayer(reshape);
@@ -3001,7 +3135,7 @@ tensor &tir_conv(tensor &in_tensor, tensor &filter, int in_ch, int in_dim, int s
         w = ceil(((float)(in_tensor.w - filter.w + 1)) / ((float)stride));
     }
     tensor *out_tensor = new tensor(shape = {n, c, h, w});
-    out_tensor->name = "conv" + std::to_string(++tensor_num);
+    out_tensor->name = "conv" + std::to_string(++cfg.tensor_num);
     std::cout << "conv : " << n << " x " << c << " x " << h << " x " << w << std::endl;
     Conv *conv = new Conv(*out_tensor, in_tensor, filter, in_ch, in_dim, in_dim, stride, pad, ker_dim, out_ch, out_dim, out_dim);
     net.AddLayer(conv);
@@ -3029,7 +3163,7 @@ tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
         w = ceil(((float)(in_tensor.shape[3] - p_size + 1)) / ((float)p_stride));
     }
     tensor *out_tensor = new tensor(shape = {n, c, h, w});
-    out_tensor->name = "max_pool" + std::to_string(++tensor_num);
+    out_tensor->name = "max_pool" + std::to_string(++cfg.tensor_num);
     std::cout << "max_pool : " << n << " x " << c << " x " << h << " x " << w << std::endl;
     //tensor *out_tensor = new tensor(shape = {out_ch, out_dim, out_dim});
     Max_pool *max_pool = new Max_pool(*out_tensor, in_tensor, p_size, p_padding, p_stride);
@@ -3050,7 +3184,7 @@ tensor &tir_matmul(tensor &mk, tensor &kn)
     assert(mk.shape[1] == kn.shape[0]);
     std::cout << "matmul : " << mk.shape[0] << " x " << kn.shape[1] << std::endl;
     tensor *out_tensor = new tensor(shape = {mk.shape[0], kn.shape[1]});
-    out_tensor->name = "matmul" + std::to_string(++tensor_num);
+    out_tensor->name = "matmul" + std::to_string(++cfg.tensor_num);
     Matmul *matmul = new Matmul(*out_tensor, mk, kn, mk.shape[0], mk.shape[1], kn.shape[1]);
     net.AddLayer(matmul);
     return *out_tensor;
@@ -3081,7 +3215,7 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
         assert(in_tensor.shape[i] == weight.shape[i]);
 
     tensor *out_tensor = new tensor(shape = in_tensor.shape);
-    out_tensor->name = "add" + std::to_string(++tensor_num);
+    out_tensor->name = "add" + std::to_string(++cfg.tensor_num);
     Add *add = new Add(*out_tensor, in_tensor, weight, in_tensor_size);
     net.AddLayer(add);
     return *out_tensor;
@@ -3106,7 +3240,7 @@ tensor &tir_sigmoid(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = {shape = in_tensor.shape});
-    out_tensor->name = "sigmoid" + std::to_string(++tensor_num);
+    out_tensor->name = "sigmoid" + std::to_string(++cfg.tensor_num);
     Sigmoid *sigmoid = new Sigmoid(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(sigmoid);
     return *out_tensor;
@@ -3131,7 +3265,7 @@ tensor &tir_relu(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = in_tensor.shape);
-    out_tensor->name = "relu" + std::to_string(++tensor_num);
+    out_tensor->name = "relu" + std::to_string(++cfg.tensor_num);
     ReLU *relu = new ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(relu);
     return *out_tensor;
@@ -3156,7 +3290,7 @@ tensor &tir_leaky_relu(tensor &in_tensor)
         in_tensor_size *= in_tensor.shape[i];
 
     tensor *out_tensor = new tensor(shape = {in_tensor.shape[0], in_tensor.shape[1]});
-    out_tensor->name = "leaky_relu" + std::to_string(++tensor_num);
+    out_tensor->name = "leaky_relu" + std::to_string(++cfg.tensor_num);
     Leaky_ReLU *leaky_relu = new Leaky_ReLU(*out_tensor, in_tensor, in_tensor_size);
     net.AddLayer(leaky_relu);
     return *out_tensor;
@@ -3177,9 +3311,32 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 
     std::cout << std::endl;
     tensor *loss = new tensor(shape = {1});
-    loss->name = "loss_mse" + std::to_string(++tensor_num);
+    loss->name = "loss_mse" + std::to_string(++cfg.tensor_num);
     Loss_MSE *loss_mse = new Loss_MSE(*loss, in_tensor, ans, ans.data.size());
     net.AddLayer(loss_mse);
+    net.output.push_back(in_tensor.name);
+    return *loss;
+}
+
+// [FIX #5] Softmax + Cross-Entropy loss wrapper (preferred for classification)
+tensor &tir_loss_cross_entropy(tensor &in_tensor, tensor &ans)
+{
+    extern Net net;
+    std::vector<int> shape;
+
+    std::cout << "loss_cross_entropy : ";
+    for (auto i = 0; i < in_tensor.shape.size(); i++)
+    {
+        if (i)
+            std::cout << " x ";
+        std::cout << in_tensor.shape[i];
+    }
+
+    std::cout << std::endl;
+    tensor *loss = new tensor(shape = {1});
+    loss->name = "loss_ce" + std::to_string(++cfg.tensor_num);
+    Loss_CrossEntropy *loss_ce = new Loss_CrossEntropy(*loss, in_tensor, ans, ans.data.size());
+    net.AddLayer(loss_ce);
     net.output.push_back(in_tensor.name);
     return *loss;
 }
@@ -3223,11 +3380,11 @@ float test_acc(Net &net, mnist::MNIST_dataset<std::vector, std::vector<uint8_t>,
         else
             tError++;
 
-        Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
+        cfg.Accuracy = (float)tCorrect / ((float)tCorrect + (float)tError) * 100;
     }
 
-    std::cout << "[Testing : " << Accuracy << "% ... success]" << std::endl;
-    return Accuracy;
+    std::cout << "[Testing : " << cfg.Accuracy << "% ... success]" << std::endl;
+    return cfg.Accuracy;
 }
 
 int main()
@@ -3258,11 +3415,13 @@ int main()
     // LeNet
     tensor &input = tir_external(shape = {1, 1, 28, 28});
     tensor &conv_weight = tir_variable(shape = {6, 1, 5, 5}, label = "conv_weight");
+    conv_weight.init_he(); // [FIX #6] He init for conv layers
     tensor &matmul_weight = tir_variable(shape = {400, 120}, label = "matmul_weight");
     tensor &matmul1_weight = tir_variable(shape = {120, 10}, label = "matmul1_weight");
     tensor &add_weight = tir_variable(shape = {1, 120}, label = "add_weight");
     tensor &add1_weight = tir_variable(shape = {1, 10}, label = "add1_weight");
     tensor &conv1_weight = tir_variable(shape = {16, 6, 5, 5}, label = "conv1_weight");
+    conv1_weight.init_he(); // [FIX #6] He init for conv layers
 
     tensor &conv = tir_conv(input, conv_weight, in_ch = 1, in_dim = 28, stride = 1, pad = 1, ker_dim = 5, out_ch = 6, out_dim = 28);
     tensor &relu = tir_relu(conv);
@@ -3276,12 +3435,13 @@ int main()
     tensor &sig = tir_sigmoid(add);
     tensor &matmul1 = tir_matmul(sig, matmul1_weight);
     tensor &add2 = tir_add(matmul1, add1_weight);
-    tensor &output = tir_sigmoid(add2);
+    // [FIX #5] Remove final Sigmoid; use Softmax+CrossEntropy instead of Sigmoid+MSE
+    tensor &output = add2; // logits go directly to cross-entropy loss
     // ----------------------------
 
-    // Mean square error
+    // [FIX #5] Cross-entropy loss (softmax computed internally)
     tensor answer(shape = {10});
-    tensor &loss = tir_loss_mse(output, answer);
+    tensor &loss = tir_loss_cross_entropy(output, answer);
 
     net.save();
 #if 1
@@ -3339,18 +3499,18 @@ int main()
             test_num++;
             if ((int)test_num % test_runs_count == 0)
             {
-                Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
-                std::cout << "[Epoch : " << e << " / " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Loss : " << std::setiosflags(std::ios::fixed) << std::setprecision(7) << loss[0].val << "], [Accuracy : " << Accuracy << "% ... success]" << std::endl;
+                cfg.Accuracy = (float)Correct / ((float)Correct + (float)Error) * 100;
+                std::cout << "[Epoch : " << e << " / " << epoch << "], [Batch : " << batch << "], [iteration : " << test_num << "], [Loss : " << std::setiosflags(std::ios::fixed) << std::setprecision(7) << loss[0].val << "], [cfg.Accuracy : " << cfg.Accuracy << "% ... success]" << std::endl;
             }
         }
 
 // testing
 #if 1
-        Accuracy = test_acc(net, dataset, input, output, answer);
+        cfg.Accuracy = test_acc(net, dataset, input, output, answer);
 #endif
         bool Acc_check = false;
 
-        if (Accuracy >= Acc_ok)
+        if (cfg.Accuracy >= cfg.Acc_ok)
         {
             Acc_check = true;
             net.save();
