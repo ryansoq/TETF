@@ -11,6 +11,9 @@
 #include <f2uc.h>
 #include <float.h> //max_pool
 #include <fstream>
+#include <numeric>
+#include <algorithm>
+#include <random>
 
 // Weight 93-94%
 //#include "weight.inc"
