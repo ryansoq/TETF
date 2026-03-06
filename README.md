@@ -167,21 +167,70 @@ CNN 負責提取局部特徵，Transformer block 學習全局關係 — 這跟 V
 
 ---
 
-## 與 micrograd 的比較
+## 程式流程
 
-|  | [micrograd](https://github.com/karpathy/micrograd) | TETF |
-|--|-----------|------|
-| 語言 | Python | C++ |
-| 粒度 | scalar（一個浮點數 = 一個節點） | tensor（矩陣運算） |
-| 建圖方式 | 隱式（operator overloading 自動追蹤） | 顯式（手動 `AddLayer` 排序） |
-| 拓撲排序 | backward 時 DFS 自動算 | 不需要 — Layer list 本身就是順序 |
-| 支援 Op | add, mul, pow, relu | Conv, MaxPool, Matmul, Attention, LayerNorm... |
-| 能跑的模型 | MLP（二分類） | LeNet CNN + Transformer（MNIST 手寫辨識） |
-| NNEF 匯出 | ❌ | ✅ |
-| 量化 | ❌ | ✅ INT8 (q7) |
+### 訓練迴圈
 
-micrograd 是樂高積木拼的模型車 — 幫你理解「車有輪子」。
-TETF 是手工鍛造的引擎 — 每個零件都是自己做的，而且真的能跑。
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Training Loop                         │
+│                                                          │
+│  for epoch = 0 to 1024:                                  │
+│    for each image in MNIST (60000 張):                    │
+│                                                          │
+│      ① 設定輸入 ─── input[j] = pixel / 255              │
+│      ② 設定答案 ─── answer = one-hot(label)              │
+│                                                          │
+│      ③ net.forward()  ─── 逐層前向計算                   │
+│      ④ net.backward() ─── 逆序反向傳播梯度               │
+│      ⑤ net.update()   ─── SGD 更新權重 + 清除梯度        │
+│                                                          │
+│    test_acc() ─── 用 1000 張測試圖評估準確率              │
+│    if 準確率 >= 99% → 結束訓練                            │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 梯度傳遞流程（單次迭代）
+
+```
+Forward（前向）──────────────────────────────────>
+
+  Input    Conv    ReLU   Pool   Conv   ReLU   Pool   Reshape  Matmul  Sigmoid  Matmul   Loss
+  [28×28] ──→ [28²×6] ──→ [14²×6] ──→ [10²×16] ──→ [5²×16] ──→ [400] ──→ [120] ──→ [10] ──→ scalar
+    │                                                                                    │
+    │                                                                                    │
+    │   loss.diff = 1（梯度起點）                                                         │
+    │                                                                                    │
+    │   ∂L/∂x = Σ (∂f/∂x × ∂L/∂f)   ←── 鏈式法則，逐層回推                              │
+    │                                                                                    │
+  ∂L/∂input                                                                         ∂L/∂output
+                                                                                   = softmax - target
+
+<──────────────────────────────────── Backward（反向）
+
+Update（更新）:
+  weight = weight - lr × ∂L/∂weight
+  清除所有 node 的 diff 和 diffs，準備下一次迭代
+```
+
+### 單個 Op 的前向 + 反向
+
+```
+            forward                          backward
+         ┌──────────┐                    ┌──────────┐
+input ──→│  Op 計算  │──→ output   ∂L/∂input ←──│ 鏈式法則 │←── ∂L/∂output
+         │ 同時記錄  │                    │          │
+         │ 偏微分邊  │                    │ ∂L/∂input│= ∂f/∂input × ∂L/∂output
+         └──────────┘                    └──────────┘
+
+以 mul 為例：
+  forward:  output = x × y
+            x.diffs ← (y, &output)    // ∂(xy)/∂x = y
+            y.diffs ← (x, &output)    // ∂(xy)/∂y = x
+
+  backward: x.diff += y × output.diff  // ∂L/∂x = ∂(xy)/∂x × ∂L/∂output
+            y.diff += x × output.diff  // ∂L/∂y = ∂(xy)/∂y × ∂L/∂output
+```
 
 ---
 

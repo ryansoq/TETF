@@ -1,3 +1,31 @@
+/*
+ * ============================================================================
+ * TETF — Tiny Embedded Training Framework
+ * ============================================================================
+ *
+ * 整體架構：
+ *   node   — 計算圖的最小單位，記錄值(val)、梯度(diff)、偏微分邊(diffs)
+ *   tensor — 多維陣列，內部是 vector<node>，用 shape 描述維度 (NCHW)
+ *   opBase — 所有算子的基底類別，定義 forward/backward/update 介面
+ *   Net    — 神經網路容器，用 list<opBase*> 串接所有算子
+ *
+ * 訓練流程：
+ *   1. forward()  — 逐層前向計算，同時記錄偏微分資訊到 node::diffs
+ *   2. backward() — 逆序遍歷各層，用鏈式法則累積梯度到 node::diff
+ *   3. update()   — SGD 更新權重：w = w - lr * grad，然後清除梯度
+ *
+ * 自動微分方式：
+ *   每個基本運算（mul, add, sub, div）在計算前向值的同時，
+ *   將「局部偏微分」和「上游節點指標」記錄到 input->diffs。
+ *   backward 時透過鏈式法則 ∂L/∂x = Σ(∂f/∂x × ∂L/∂f) 遞迴回推梯度。
+ *
+ * 支援的算子：
+ *   Conv, MaxPool, Matmul, Add, ReLU, Sigmoid, Leaky_ReLU,
+ *   Loss_MSE, Loss_CrossEntropy,
+ *   ScaledDotProductAttention, MultiHeadAttention, LayerNorm, TransformerBlock
+ * ============================================================================
+ */
+
 #define _USE_MATH_DEFINES // [FIX #6] Needed for M_PI on some compilers
 #include <iostream>
 #include <cmath>
@@ -39,6 +67,16 @@ typedef uint16_t u16_t;
 typedef int32_t q31_t;
 typedef int64_t q63_t;
 
+/*
+ * node — 計算圖的最小單位（標量節點）
+ *
+ *   val   — 前向傳播時的計算值
+ *   diff  — 反向傳播時累積的梯度 ∂L/∂(this node)
+ *   diffs — 偏微分邊的集合：每條邊是 (局部偏微分值, 上游節點指標)
+ *           例如 z = x * y 時，x.diffs 會存 (y.val, &z)
+ *           表示 ∂z/∂x = y，且 z 是 x 的上游節點
+ *   q_val — INT8 量化值，用於模型壓縮（精度達標後啟用）
+ */
 class node
 {
 public:
@@ -123,6 +161,16 @@ typedef struct
     uint16_t lanes;
 } DLDataType;
 
+/*
+ * tensor — 多維張量
+ *
+ *   data   — 底層儲存，是 vector<node>，每個元素都是計算圖節點
+ *   shape  — 維度資訊，慣例 NCHW（batch, channel, height, width）
+ *   n,c,h,w — shape 的快捷存取
+ *
+ *   建構時自動以 Xavier 均勻分布初始化權重。
+ *   卷積層可額外呼叫 init_he() 改用 He 初始化（適合 ReLU）。
+ */
 class tensor
 {
 public:
@@ -208,7 +256,17 @@ public:
     }
 };
 
-// Recursive function
+/*
+ * get_diff — 遞迴計算 ∂(dst)/∂(src)，即 dst 對 src 的梯度
+ *
+ * 鏈式法則的核心實現：
+ *   若 src == dst，則 ∂x/∂x = 1（基底情況）
+ *   否則 ∂L/∂x = Σ (∂f/∂x × ∂L/∂f)
+ *   其中 (∂f/∂x, &f) 存在 src->diffs 裡
+ *
+ * 注意：此函數主要用於 TYPE1 backward（建圖式自動微分），
+ * TYPE2/3/4 backward 改用手動累積 diff 以提升效能。
+ */
 float get_diff(node *src, node *dst)
 {
     if (src == dst)
@@ -227,6 +285,12 @@ float get_diff(node *src, node *dst)
     }
 }
 
+/*
+ * mul — 乘法運算 output = input1 × input2
+ *
+ * 偏微分：∂(x×y)/∂x = y，∂(x×y)/∂y = x
+ * 因此 input1 的邊權重 = input2->val，input2 的邊權重 = input1->val
+ */
 void mul(node *output, node *input1, node *input2)
 {
     std::pair<float, node *> diff1;
@@ -272,6 +336,10 @@ float mul_diff(node *input1, node *input2, node *output)
     return input1->val * input2->val;
 }
 
+/*
+ * add — 加法運算 output = input1 + input2
+ * 偏微分：∂(x+y)/∂x = 1，∂(x+y)/∂y = 1
+ */
 void add(node *output, node *input1, node *input2)
 {
     std::pair<float, node *> diff1;
@@ -317,6 +385,10 @@ float add_diff(node *input1, node *input2, node *output)
     return input1->val + input2->val;
 }
 
+/*
+ * sub — 減法運算 output = input1 - input2
+ * 偏微分：∂(x-y)/∂x = 1，∂(x-y)/∂y = -1
+ */
 void sub(node *output, node *input1, node *input2)
 {
     std::pair<float, node *> diff1;
@@ -363,7 +435,10 @@ float sub_diff(node *input1, node *input2, node *output)
     return input1->val - input2->val;
 }
 
-// input1/input2
+/*
+ * div — 除法運算 output = input1 / input2
+ * 偏微分：∂(x/y)/∂x = 1/y，∂(x/y)/∂y = -x/y²
+ */
 // https://zs.symbolab.com/solver/partial-derivative-calculator/%20%5Cfrac%7B%5Cpartial%7D%7B%5Cpartial%20y%7D%5Cleft(%5Cfrac%7Bx%7D%7By%7D%5Cright)
 float div_diff(node *input1, node *input2, node *output)
 {
@@ -594,6 +669,14 @@ void Reshape::forward()
     out.data = a.data;
 }
 
+/*
+ * Max_pool — 最大池化算子
+ *
+ * forward: 在每個 size×size 視窗中取最大值，記錄最大值的位置索引
+ * backward: 梯度只回傳給 forward 時的最大值位置（其餘位置梯度為 0）
+ *
+ * 無可訓練參數，update() 只清除梯度。
+ */
 class Max_pool : public opBase
 {
 public:
@@ -914,6 +997,19 @@ void Max_pool::clear()
         x[i].diffs.clear();
     }
 }
+/*
+ * Conv — 2D 卷積算子
+ *
+ * forward: output[n,c_out,h,w] = Σ input[n,c_in,h',w'] × filter[c_out,c_in,kh,kw]
+ *          支援 padding、stride，有多種實現 (TYPE1~TYPE4)
+ *          TYPE4 使用 im2col + GEMM 加速
+ *
+ * backward: 對 input 和 filter 分別累積梯度
+ *   ∂L/∂input  += filter_val × ∂L/∂output
+ *   ∂L/∂filter += input_val  × ∂L/∂output
+ *
+ * update: SGD 更新 filter 權重，清除梯度
+ */
 class Conv : public opBase
 {
 public:
@@ -1849,6 +1945,16 @@ void Conv::clear()
     }
 }
 
+/*
+ * Matmul — 矩陣乘法算子 C[m,n] = A[m,k] × B[k,n]
+ *
+ * forward: C_ij = Σ_q A_iq × B_qj
+ *   同時記錄偏微分：∂C_ij/∂A_iq = B_qj，∂C_ij/∂B_qj = A_iq
+ *
+ * backward: 展開鏈式法則累積梯度
+ *   ∂L/∂A = ∂L/∂C × Bᵀ（等效操作）
+ *   ∂L/∂B = Aᵀ × ∂L/∂C（等效操作）
+ */
 class Matmul : public opBase
 {
 public:
@@ -2137,6 +2243,12 @@ void node::printDiff(void){
     */
 };
 
+/*
+ * Add — 逐元素加法算子 output[i] = input1[i] + input2[i]
+ *
+ * forward: 記錄 ∂(x+y)/∂x = 1, ∂(x+y)/∂y = 1
+ * backward: 梯度直接傳遞（乘以 1），兩個輸入都收到完整梯度
+ */
 class Add : public opBase
 {
 public:
@@ -2322,6 +2434,13 @@ void Add::save()
     std::cout << "\t" << nnCode;
 }
 
+/*
+ * ReLU — 整流線性單元 f(x) = max(0, x)
+ *
+ * forward: x > 0 → output = x, diff = 1
+ *          x ≤ 0 → output = 0, diff = 0
+ * backward: 梯度只在 x > 0 時通過（梯度閘門）
+ */
 class ReLU : public opBase
 {
 public:
@@ -2510,6 +2629,12 @@ void Leaky_ReLU::clear()
     }
 }
 
+/*
+ * Sigmoid — S 型激活函數 σ(x) = 1/(1+e^(-x))
+ *
+ * forward: output = σ(x)
+ * backward: ∂σ/∂x = σ(x) × (1 - σ(x))，梯度在兩端趨近 0（飽和區）
+ */
 class Sigmoid : public opBase
 {
 public:
@@ -2627,6 +2752,13 @@ void Sigmoid::save()
     std::cout << "\t" << nnCode;
 }
 
+/*
+ * Loss_MSE — 均方誤差損失函數 L = Σ(src - dest)² / 2m
+ *
+ * forward: 計算 MSE 並設定梯度起點 loss.diff = 1
+ *   ∂L/∂src_i  = src_i - dest_i
+ *   ∂L/∂dest_i = dest_i - src_i
+ */
 class Loss_MSE : public opBase
 {
 public:
@@ -2796,6 +2928,17 @@ void Loss_MSE::save()
     // not code-gen
 }
 
+/*
+ * Loss_CrossEntropy — Softmax + 交叉熵損失（分類任務首選）
+ *
+ * forward:
+ *   1. Softmax: p_i = exp(x_i - max) / Σ exp(x_j - max)  （數值穩定版）
+ *   2. Cross-Entropy: L = -Σ target_i × log(p_i)
+ *   3. 梯度：∂L/∂logits_i = softmax_i - target_i（簡潔的組合梯度）
+ *
+ * 這個「softmax - target」的梯度是 softmax + cross-entropy 組合微分的結果，
+ * 避免了單獨計算 softmax 梯度的複雜性。
+ */
 // [FIX #5] Softmax + Cross-Entropy loss for classification (replaces Sigmoid + MSE)
 class Loss_CrossEntropy : public opBase
 {
@@ -2981,6 +3124,22 @@ void add(node *out, node *a, node *b, int length)
     }
 }
 
+/*
+ * ScaledDotProductAttention — 縮放點積注意力機制
+ *
+ * 數學公式：Attention(Q,K,V) = softmax(QKᵀ / √d_k) × V
+ *
+ * forward:
+ *   1. QKᵀ: [seq, d_k] × [d_k, seq] → [seq, seq] 注意力分數矩陣
+ *   2. 除以 √d_k 防止點積值過大導致 softmax 飽和
+ *   3. Softmax 歸一化為注意力權重
+ *   4. 加權求和 V：[seq, seq] × [seq, d_k] → [seq, d_k]
+ *
+ * backward: 反向傳播通過三個階段
+ *   1. ∂L/∂V = Attentionᵀ × ∂L/∂output
+ *   2. ∂L/∂attention = ∂L/∂output × Vᵀ → 通過 softmax 反向
+ *   3. ∂L/∂Q, ∂L/∂K 從 QKᵀ 的梯度推導
+ */
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {
@@ -3166,6 +3325,21 @@ void ScaledDotProductAttention::save()
     std::cout << "\t" << nnCode;
 }
 
+/*
+ * MultiHeadAttention — 多頭注意力機制
+ *
+ * 概念：將 d_model 維度切成 num_heads 份，各頭獨立計算注意力後拼接
+ *   MultiHead(Q,K,V) = Concat(head_1, ..., head_h) × W_O
+ *   head_i = Attention(Q × W_Q_i, K × W_K_i, V × W_V_i)
+ *
+ * forward:
+ *   1. 線性投影 Q = input × W_Q, K = input × W_K, V = input × W_V
+ *   2. 切分成 num_heads 份，各頭獨立做 ScaledDotProductAttention
+ *   3. 拼接所有頭的輸出，再乘以 W_O 投影回 d_model 維度
+ *
+ * backward: 反向沿投影 → 各頭注意力 → 合併梯度
+ *   W_Q, W_K, W_V, W_O 為可訓練參數，使用 SGD + 梯度裁剪更新
+ */
 // [TRANSFORMER] MultiHeadAttention operation
 class MultiHeadAttention : public opBase
 {
@@ -3466,6 +3640,19 @@ void MultiHeadAttention::save()
     std::cout << "\t" << nnCode;
 }
 
+/*
+ * LayerNorm — 層正規化
+ *
+ * 數學公式：output = γ × (x - μ) / √(σ² + ε) + β
+ *   μ = mean(x)，σ² = var(x)，γ(scale) 和 β(shift) 為可學習參數
+ *
+ * 作用：穩定各層的輸入分布，加速訓練收斂
+ *
+ * backward: LayerNorm 的反向較複雜，需考慮 μ 和 σ² 對所有元素的依賴
+ *   ∂L/∂γ = Σ norm_i × ∂L/∂y_i
+ *   ∂L/∂β = Σ ∂L/∂y_i
+ *   ∂L/∂x_i 需經由 ∂L/∂σ² 和 ∂L/∂μ 間接計算
+ */
 // [TRANSFORMER] LayerNorm operation
 class LayerNorm : public opBase
 {
@@ -3635,6 +3822,18 @@ void LayerNorm::save()
     std::cout << "\t" << nnCode;
 }
 
+/*
+ * TransformerBlock — 完整的 Transformer 區塊
+ *
+ * 結構（Pre-LN 變體）：
+ *   x → MultiHeadAttention → + (殘差連接) → LayerNorm → FFN → + (殘差連接) → LayerNorm → output
+ *       ↑___________________↑                            ↑_____________________↑
+ *
+ * FFN = W2 × ReLU(W1 × x)，隱藏維度 d_ff 通常是 d_model 的 2~4 倍
+ *
+ * 殘差連接的作用：讓梯度可以直接跳過複雜的子層，緩解深層網路的梯度消失
+ * backward 時殘差連接的梯度 = 直通梯度 + 子層梯度
+ */
 // [TRANSFORMER] TransformerBlock operation 
 class TransformerBlock : public opBase
 {
@@ -3977,6 +4176,15 @@ public:
     }
 };
 
+/*
+ * Net — 神經網路容器
+ *
+ * Layer 是一個有序的 op 列表（std::list<opBase*>）
+ * forward()  — 從頭到尾依序執行每個 op 的 forward()
+ * backward() — 從尾到頭逆序執行每個 op 的 backward()（鏈式法則）
+ * update()   — 從尾到頭逆序執行每個 op 的 update()（SGD 參數更新）
+ * save()     — 產生 NNEF 格式的模型描述（可部署到嵌入式推理引擎）
+ */
 class Net : public netBase
 {
 public:
@@ -4057,11 +4265,16 @@ void Net::print()
 }
 
 // #######################################
-// # Wrapper function
+// # Wrapper functions — 高階 API
+// # 每個 tir_xxx 函數建立對應的 Op 物件、分配輸出 tensor、加入 Net
+// # 使用方式類似 PyTorch 的 functional API：
+// #   tensor &output = tir_conv(input, weight, ...);
+// # 回傳值是輸出 tensor 的參考，可直接串接下一層
 // ---------------------------------------
 
 Net net;
 
+// tir_external — 宣告外部輸入張量（如影像資料），不含可訓練參數
 tensor &tir_external(std::vector<int> p_shape)
 {
     extern Net net;
@@ -4083,6 +4296,7 @@ tensor &tir_external(std::vector<int> p_shape)
     return *out_tensor;
 }
 
+// tir_variable — 宣告可訓練的權重張量，可指定儲存路徑
 tensor &tir_variable(std::vector<int> p_shape, std::string path)
 {
     extern Net net;
@@ -4103,6 +4317,7 @@ tensor &tir_variable(std::vector<int> p_shape, std::string path)
     return *out_tensor;
 }
 
+// tir_reshape — 改變張量形狀（不複製資料，共用底層 node）
 tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
 {
     extern Net net;
@@ -4124,6 +4339,7 @@ tensor &tir_reshape(tensor &in_tensor, std::vector<int> p_shape)
     return *out_tensor;
 }
 
+// tir_conv — 建立 2D 卷積層，自動計算輸出尺寸
 tensor &tir_conv(tensor &in_tensor, tensor &filter, int in_ch, int in_dim, int stride, int pad, int ker_dim, int out_ch, int out_dim)
 {
     extern Net net;
@@ -4153,6 +4369,7 @@ tensor &tir_conv(tensor &in_tensor, tensor &filter, int in_ch, int in_dim, int s
     return *out_tensor;
 }
 
+// tir_max_pool — 建立最大池化層，縮小空間維度
 tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
 {
     extern Net net;
@@ -4182,7 +4399,7 @@ tensor &tir_max_pool(tensor &in_tensor, int p_size, int p_padding, int p_stride)
     return *out_tensor;
 }
 
-// [m, k] * [k, n] -> [m, n]
+// tir_matmul — 矩陣乘法 [m,k] × [k,n] → [m,n]，即全連接層的核心
 tensor &tir_matmul(tensor &mk, tensor &kn)
 {
     extern Net net;
@@ -4201,6 +4418,7 @@ tensor &tir_matmul(tensor &mk, tensor &kn)
     return *out_tensor;
 }
 
+// tir_add — 逐元素加法（常用於加 bias）
 tensor &tir_add(tensor &in_tensor, tensor &weight)
 {
     extern Net net;
@@ -4232,6 +4450,7 @@ tensor &tir_add(tensor &in_tensor, tensor &weight)
     return *out_tensor;
 }
 
+// tir_sigmoid — Sigmoid 激活函數
 tensor &tir_sigmoid(tensor &in_tensor)
 {
     extern Net net;
@@ -4257,6 +4476,7 @@ tensor &tir_sigmoid(tensor &in_tensor)
     return *out_tensor;
 }
 
+// tir_relu — ReLU 激活函數
 tensor &tir_relu(tensor &in_tensor)
 {
     extern Net net;
@@ -4307,6 +4527,7 @@ tensor &tir_leaky_relu(tensor &in_tensor)
     return *out_tensor;
 }
 
+// tir_loss_mse — MSE 損失函數（迴歸任務用）
 tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
 {
     extern Net net;
@@ -4329,6 +4550,7 @@ tensor &tir_loss_mse(tensor &in_tensor, tensor &ans)
     return *loss;
 }
 
+// tir_loss_cross_entropy — Softmax + 交叉熵損失（分類任務首選）
 // [FIX #5] Softmax + Cross-Entropy loss wrapper (preferred for classification)
 tensor &tir_loss_cross_entropy(tensor &in_tensor, tensor &ans)
 {
@@ -4352,6 +4574,7 @@ tensor &tir_loss_cross_entropy(tensor &in_tensor, tensor &ans)
     return *loss;
 }
 
+// tir_multi_head_attention — 多頭注意力層
 // [TRANSFORMER] Multi-head attention wrapper function
 tensor &tir_multi_head_attention(tensor &input, int num_heads, int d_model)
 {
@@ -4386,6 +4609,7 @@ tensor &tir_multi_head_attention(tensor &input, int num_heads, int d_model)
     return *out_tensor;
 }
 
+// tir_layer_norm — 層正規化
 // [TRANSFORMER] Layer normalization wrapper function  
 tensor &tir_layer_norm(tensor &input, int length)
 {
@@ -4411,6 +4635,7 @@ tensor &tir_layer_norm(tensor &input, int length)
     return *out_tensor;
 }
 
+// tir_transformer_block — 完整 Transformer 區塊（Attention + FFN + 殘差 + LN）
 // [TRANSFORMER] Transformer block wrapper function
 tensor &tir_transformer_block(tensor &input, int num_heads, int d_model, int d_ff)
 {
@@ -4674,6 +4899,22 @@ void run_transformer_tests() {
     std::cout << "Transformer operations are working correctly without NaN!" << std::endl;
 }
 
+/*
+ * main — 訓練主程式
+ *
+ * 流程：
+ *   1. 載入 MNIST 資料集（60000 張 28×28 手寫數字圖片）
+ *   2. 建構模型：CNN (LeNet) 或 CNN + Transformer 混合架構
+ *   3. 訓練迴圈：
+ *      for each epoch:
+ *        for each image:
+ *          → 設定 input 和 answer (one-hot)
+ *          → net.forward()   // 前向計算
+ *          → net.backward()  // 反向傳播梯度
+ *          → net.update()    // SGD 更新權重
+ *        → test_acc()        // 每個 epoch 後測試準確率
+ *        → 達到目標準確率就提前結束
+ */
 int main(int argc, char *argv[])
 {
     // Parse command line arguments
