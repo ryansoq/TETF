@@ -617,10 +617,79 @@ void test_end_to_end() {
 }
 
 // ============================================================================
-// Test 9: TextLayerNorm — forward 正規化 + backward 數值梯度
+// Test 9: TextGELU — forward 近似值 + backward 數值梯度
+// ============================================================================
+void test_text_gelu() {
+    std::cout << "\n═══ Test 9: TextGELU ═══" << std::endl;
+
+    int size = 5;
+    tensor *input = new tensor({1, 1, 1, size});
+    tensor *output = new tensor({1, 1, 1, size});
+
+    // GELU 特性：
+    // GELU(0) = 0
+    // GELU(x) ≈ x for large x > 0
+    // GELU(x) ≈ 0 for large x < 0
+    float vals[] = {-3.0f, -1.0f, 0.0f, 1.0f, 3.0f};
+    for (int i = 0; i < size; i++) input->data[i].val = vals[i];
+    zero_diffs(input); zero_diffs(output);
+
+    TextGELU gelu_op(*output, *input, size);
+    gelu_op.forward();
+
+    CHECK("forward: GELU(0) ≈ 0",
+          fabs(output->data[2].val) < 1e-5f);
+    CHECK("forward: GELU(-3) ≈ 0 (negative saturates)",
+          fabs(output->data[0].val) < 0.01f);
+    CHECK("forward: GELU(3) ≈ 3 (positive passes)",
+          fabs(output->data[4].val - 3.0f) < 0.01f);
+    CHECK("forward: GELU(-1) < 0 (slightly negative)",
+          output->data[1].val < 0);
+    CHECK("forward: GELU(1) > 0 and < 1 (smooth gate)",
+          output->data[3].val > 0.5f && output->data[3].val < 1.0f);
+
+    // 數值梯度
+    auto compute_loss = [&]() -> float {
+        gelu_op.forward();
+        float loss = 0;
+        for (int i = 0; i < size; i++) loss += output->data[i].val;
+        return loss;
+    };
+
+    zero_diffs(input); zero_diffs(output);
+    for (int i = 0; i < size; i++) output->data[i].diff = 1.0f;
+    gelu_op.backward();
+
+    std::vector<float> analytic(size);
+    for (int i = 0; i < size; i++) analytic[i] = input->data[i].diff;
+
+    bool grad_ok = true;
+    for (int i = 0; i < size; i++) {
+        float ng = numerical_grad(input->data[i], compute_loss);
+        if (!check_grad(analytic[i], ng)) {
+            std::cout << "  ⚠️ input[" << i << "] x=" << vals[i]
+                      << " analytic=" << analytic[i] << " numeric=" << ng << std::endl;
+            grad_ok = false;
+        }
+    }
+    CHECK("backward: gradients ≈ numerical", grad_ok);
+
+    // GELU 導數特性：
+    // x=0 → grad ≈ 0.5
+    // x>>0 → grad ≈ 1
+    // x<<0 → grad ≈ 0
+    CHECK("backward: grad(0) ≈ 0.5", fabs(analytic[2] - 0.5f) < 0.05f);
+    CHECK("backward: grad(3) ≈ 1.0", fabs(analytic[4] - 1.0f) < 0.05f);
+    CHECK("backward: grad(-3) ≈ 0.0", fabs(analytic[0]) < 0.05f);
+
+    delete input; delete output;
+}
+
+// ============================================================================
+// Test 10: TextLayerNorm — forward 正規化 + backward 數值梯度
 // ============================================================================
 void test_text_layer_norm() {
-    std::cout << "\n═══ Test 9: TextLayerNorm ═══" << std::endl;
+    std::cout << "\n═══ Test 10: TextLayerNorm ═══" << std::endl;
 
     int seq_len = 2, d_model = 4;
 
@@ -730,6 +799,7 @@ int main() {
     test_text_cross_entropy();
     test_sgd_update();
     test_text_layer_norm();
+    test_text_gelu();
     test_end_to_end();
 
     std::cout << "\n═══════════════════════════════════════════" << std::endl;

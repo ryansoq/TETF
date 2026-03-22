@@ -3770,6 +3770,71 @@ public:
     void save() {}
 };
 
+// ============================================================================
+// [TEXT] TextGELU — Gaussian Error Linear Unit
+//
+// GPT 系列用 GELU 取代 ReLU：
+//   GELU(x) = x × Φ(x)  ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³)))
+//
+// backward:
+//   ∂GELU/∂x = Φ(x) + x × φ(x)  （用 tanh 近似的導數）
+// ============================================================================
+class TextGELU : public opBase
+{
+public:
+    tensor *output, *input;
+    int size;
+    std::vector<float> tanh_cache;  // 存 tanh 值供 backward 用
+
+    TextGELU(tensor &out, tensor &in, int sz) : output(&out), input(&in), size(sz) {
+        tanh_cache.resize(sz);
+        nnCode.append(out.name + " = gelu(" + in.name + ");\n");
+    }
+
+    void forward() {
+        const float sqrt_2_over_pi = 0.7978845608f;  // √(2/π)
+        const float coeff = 0.044715f;
+        for (int i = 0; i < size; i++) {
+            float x = input->data[i].val;
+            float inner = sqrt_2_over_pi * (x + coeff * x * x * x);
+            float t = tanh(inner);
+            tanh_cache[i] = t;
+            output->data[i].val = 0.5f * x * (1.0f + t);
+        }
+    }
+
+    void backward() {
+        const float sqrt_2_over_pi = 0.7978845608f;
+        const float coeff = 0.044715f;
+        for (int i = 0; i < size; i++) {
+            float x = input->data[i].val;
+            float t = tanh_cache[i];
+            // sech²(inner) = 1 - tanh²(inner)
+            float sech2 = 1.0f - t * t;
+            float inner_deriv = sqrt_2_over_pi * (1.0f + 3.0f * coeff * x * x);
+            // ∂GELU/∂x = 0.5(1+t) + 0.5x × sech²(inner) × inner'
+            float grad = 0.5f * (1.0f + t) + 0.5f * x * sech2 * inner_deriv;
+            input->data[i].diff += grad * output->data[i].diff;
+        }
+    }
+
+    void update() {
+        for (int i = 0; i < size; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear() {
+        for (int i = 0; i < size; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {
