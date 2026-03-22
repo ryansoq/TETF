@@ -836,6 +836,35 @@ class GPTMini:
 
         return loss
 
+    def _clip_grads(self, max_norm=1.0):
+        """Gradient clipping — 限制梯度大小，防止震盪"""
+        # 收集所有梯度
+        grads = []
+        if hasattr(self.embedding, '_d_token_emb'):
+            grads.append(self.embedding._d_token_emb)
+            grads.append(self.embedding._d_pos_emb)
+        if hasattr(self.out_proj, '_d_weight'):
+            grads.append(self.out_proj._d_weight)
+        for block in self.transformer_blocks:
+            if hasattr(block.mha, '_d_Wq'):
+                grads.extend([block.mha._d_Wq, block.mha._d_Wk,
+                             block.mha._d_Wv, block.mha._d_Wo])
+            if hasattr(block.ln1, '_d_gamma'):
+                grads.extend([block.ln1._d_gamma, block.ln1._d_beta])
+            if hasattr(block.ln2, '_d_gamma'):
+                grads.extend([block.ln2._d_gamma, block.ln2._d_beta])
+            if hasattr(block.ff_w1, '_d_weight'):
+                grads.append(block.ff_w1._d_weight)
+            if hasattr(block.ff_w2, '_d_weight'):
+                grads.append(block.ff_w2._d_weight)
+
+        # 計算全局梯度 norm
+        total_norm = np.sqrt(sum(np.sum(g**2) for g in grads))
+        if total_norm > max_norm:
+            scale = max_norm / (total_norm + 1e-8)
+            for g in grads:
+                g *= scale
+
     def forward(self, token_ids):
         """純推理用的 forward（不緩存梯度）"""
         self.embedding.token_ids = token_ids
@@ -935,7 +964,7 @@ class GPTMini:
 # =============================================================================
 # 訓練主程式
 # =============================================================================
-def train(epochs=500, lr=0.003):
+def train(epochs=500, lr=0.001):
     print("=" * 60)
     print("🌊 TETF GPT-1 Mini — Nami 知識模型訓練")
     print("   架構：每個 op 獨立 forward/backward/update")
@@ -992,15 +1021,16 @@ def train(epochs=500, lr=0.003):
     best_loss = float('inf')
     perfect_count = 0
 
-    warmup_epochs = max(int(epochs * 0.1), 5)
+    warmup_epochs = max(int(epochs * 0.02), 3)  # 短 warmup（~10 epoch）
 
     for epoch in range(epochs):
-        # === Cosine LR schedule with warmup ===
+        # === Cosine LR schedule with short warmup ===
         if epoch < warmup_epochs:
             current_lr = lr * (epoch + 1) / warmup_epochs
         else:
             progress = (epoch - warmup_epochs) / max(epochs - warmup_epochs, 1)
             current_lr = lr * 0.5 * (1 + np.cos(np.pi * progress))
+        current_lr = max(current_lr, lr * 0.01)  # 最低不低於 lr 的 1%
         model.lr = current_lr
 
         total_loss = 0
