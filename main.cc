@@ -4064,6 +4064,39 @@ public:
     void save() {}
 };
 
+// ============================================================================
+// [TEXT] AdamParam — Adam optimizer 的參數狀態
+//
+// Adam: m = β₁m + (1-β₁)g,  v = β₂v + (1-β₂)g²
+//       m̂ = m/(1-β₁ᵗ),  v̂ = v/(1-β₂ᵗ)
+//       w = w - lr × m̂ / (√v̂ + ε)
+// ============================================================================
+struct AdamState {
+    std::vector<float> m;  // first moment
+    std::vector<float> v;  // second moment
+
+    void init(int size) {
+        m.assign(size, 0.0f);
+        v.assign(size, 0.0f);
+    }
+
+    void step(tensor *w, int size, int t,
+              float lr = 0.001f, float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f) {
+        float bc1 = 1.0f - pow(beta1, t);
+        float bc2 = 1.0f - pow(beta2, t);
+        for (int i = 0; i < size; i++) {
+            float g = w->data[i].diff;
+            m[i] = beta1 * m[i] + (1.0f - beta1) * g;
+            v[i] = beta2 * v[i] + (1.0f - beta2) * g * g;
+            float m_hat = m[i] / bc1;
+            float v_hat = v[i] / bc2;
+            w->data[i].val -= lr * m_hat / (sqrt(v_hat) + eps);
+            w->data[i].diff = 0;
+            w->data[i].diffs.clear();
+        }
+    }
+};
+
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {
@@ -6147,6 +6180,359 @@ void run_text_transformer() {
     delete ffn_out; delete res2; delete out_weight; delete logits; delete loss_tensor;
 }
 
+// ============================================================================
+// [GPT] run_gpt_mini — GPT-1 Mini Demo
+//
+// 最小的 GPT-1 架構：
+//   - Embedding + Learnable Positional Encoding
+//   - N 層 Transformer Block（Multi-Head Attention + LayerNorm + GELU FFN）
+//   - Adam optimizer
+//   - Temperature sampling
+//
+// 用字元級 tokenizer 訓練，學會回答問題
+// ============================================================================
+void run_gpt_mini() {
+    std::cout << "[Mode: GPT-1 Mini]" << std::endl;
+    std::cout << std::endl;
+
+    // === 訓練文本 ===
+    std::string text = "誰是Nami？Nami是厲害的AI工程師";
+    std::cout << "📝 Training text: " << text << std::endl;
+
+    // === Tokenizer ===
+    std::vector<std::string> all_chars = utf8_chars(text);
+    std::vector<std::string> vocab;
+    for (auto &ch : all_chars) {
+        bool found = false;
+        for (auto &v : vocab) if (v == ch) { found = true; break; }
+        if (!found) vocab.push_back(ch);
+    }
+    int vocab_size = vocab.size();
+    int total_len = all_chars.size();
+    int seq_len = total_len - 1;
+
+    // token ID 化
+    std::vector<int> token_ids;
+    for (auto &ch : all_chars)
+        for (int j = 0; j < vocab_size; j++)
+            if (vocab[j] == ch) { token_ids.push_back(j); break; }
+
+    // === GPT-1 Mini 超參數 ===
+    int d_model = 32;
+    int d_ff = 64;
+    int num_heads = 4;    // 4 heads, d_k = 8
+    int num_layers = 2;   // 2 layers
+    int epochs = 300;
+    float lr = 0.003f;
+
+    std::cout << "📊 Vocab: " << vocab_size << " tokens" << std::endl;
+    std::cout << "⚙️  GPT-1 Mini config:" << std::endl;
+    std::cout << "   d_model=" << d_model << ", d_ff=" << d_ff 
+              << ", heads=" << num_heads << ", layers=" << num_layers << std::endl;
+    std::cout << "   optimizer=Adam, lr=" << lr << ", epochs=" << epochs << std::endl;
+    std::cout << std::endl;
+
+    // === 計算參數量 ===
+    int param_count = 0;
+    param_count += vocab_size * d_model;  // token embedding
+    param_count += seq_len * d_model;     // position embedding
+    param_count += num_layers * (4 * d_model * d_model);  // Wq, Wk, Wv, Wo per layer
+    param_count += num_layers * (d_model * d_ff + d_ff * d_model);  // FFN per layer
+    param_count += num_layers * (2 * d_model + 2 * d_model);  // 2x LayerNorm γ,β per layer
+    param_count += d_model * vocab_size;  // output projection
+
+    // === 建立模型 ===
+    srand(42);
+    auto make_tensor = [](int size) -> tensor* {
+        tensor *t = new tensor({1, 1, 1, size});
+        for (int i = 0; i < size; i++) {
+            t->data[i].val = ((float)rand() / RAND_MAX - 0.5f) * 0.1f;
+            t->data[i].diff = 0; t->data[i].diffs.clear();
+        }
+        return t;
+    };
+
+    // Embedding
+    tensor *emb_weight = make_tensor(vocab_size * d_model);
+    tensor *pos_enc = make_tensor(seq_len * d_model);
+    tensor *emb_out = make_tensor(seq_len * d_model);
+    tensor *pos_out = make_tensor(seq_len * d_model);
+
+    // Per-layer tensors
+    struct TransformerLayer {
+        tensor *ln1_gamma, *ln1_beta, *ln1_out;
+        tensor *mha_out;
+        tensor *Wq, *Wk, *Wv, *Wo;
+        tensor *res1;
+        tensor *ln2_gamma, *ln2_beta, *ln2_out;
+        tensor *ffn_w1, *ffn_w2;
+        tensor *ffn_hidden, *ffn_gelu, *ffn_out;
+        tensor *res2;
+    };
+
+    std::vector<TransformerLayer> layers(num_layers);
+
+    // Output
+    tensor *out_weight = make_tensor(d_model * vocab_size);
+    tensor *logits = make_tensor(seq_len * vocab_size);
+    tensor *loss_tensor = make_tensor(1);
+
+    // === 建立 Ops ===
+    std::cout << "🏗️ Model Architecture:" << std::endl;
+    std::cout << "embedding : " << vocab_size << " x " << d_model << std::endl;
+
+    Embedding emb_op(*emb_out, *emb_weight, vocab_size, d_model, seq_len);
+
+    std::cout << "pos_encoding : " << seq_len << " x " << d_model << std::endl;
+    TextAdd pos_add_op(*pos_out, *emb_out, *pos_enc, seq_len * d_model, true);
+
+    // 所有 ops
+    std::vector<opBase*> ops;
+    ops.push_back(&emb_op);
+    ops.push_back(&pos_add_op);
+
+    // AdamState for all weights
+    std::vector<std::pair<tensor*, AdamState>> adam_params;
+    auto add_adam = [&](tensor *t, int size) {
+        AdamState as;
+        as.init(size);
+        adam_params.push_back({t, as});
+    };
+
+    add_adam(emb_weight, vocab_size * d_model);
+    add_adam(pos_enc, seq_len * d_model);
+
+    // 各層指標存起來（因為 ops 裡用 pointer）
+    std::vector<TextLayerNorm*> ln1_ops(num_layers);
+    std::vector<TextMultiHeadAttention*> mha_ops(num_layers);
+    std::vector<TextAdd*> res1_ops(num_layers);
+    std::vector<TextLayerNorm*> ln2_ops(num_layers);
+    std::vector<TextMatmul*> ffn1_ops(num_layers);
+    std::vector<TextGELU*> gelu_ops(num_layers);
+    std::vector<TextMatmul*> ffn2_ops(num_layers);
+    std::vector<TextAdd*> res2_ops(num_layers);
+
+    tensor *prev_output = pos_out;
+
+    for (int l = 0; l < num_layers; l++) {
+        auto &ly = layers[l];
+        std::cout << "--- transformer_block " << l << " : " << seq_len << " x " << d_model << " ---" << std::endl;
+
+        // LayerNorm 1
+        ly.ln1_gamma = make_tensor(d_model);
+        ly.ln1_beta = make_tensor(d_model);
+        ly.ln1_out = make_tensor(seq_len * d_model);
+        std::cout << "  layer_norm_1 : " << d_model << std::endl;
+        ln1_ops[l] = new TextLayerNorm(*ly.ln1_out, *prev_output, *ly.ln1_gamma, *ly.ln1_beta, seq_len, d_model);
+        ops.push_back(ln1_ops[l]);
+
+        // Multi-Head Attention
+        int wsize = d_model * d_model;
+        ly.Wq = make_tensor(wsize); ly.Wk = make_tensor(wsize);
+        ly.Wv = make_tensor(wsize); ly.Wo = make_tensor(wsize);
+        // Xavier init for attention weights
+        float limit = sqrt(6.0f / (d_model + d_model));
+        for (int i = 0; i < wsize; i++) {
+            ly.Wq->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+            ly.Wk->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+            ly.Wv->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+            ly.Wo->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+        }
+        ly.mha_out = make_tensor(seq_len * d_model);
+        std::cout << "  multi_head_attention : " << num_heads << " heads, d_k=" << d_model/num_heads << std::endl;
+        mha_ops[l] = new TextMultiHeadAttention(*ly.mha_out, *ly.ln1_out, *ly.Wq, *ly.Wk, *ly.Wv, *ly.Wo, seq_len, d_model, num_heads);
+        ops.push_back(mha_ops[l]);
+
+        // Residual 1
+        ly.res1 = make_tensor(seq_len * d_model);
+        std::cout << "  residual_add" << std::endl;
+        res1_ops[l] = new TextAdd(*ly.res1, *prev_output, *ly.mha_out, seq_len * d_model, false);
+        ops.push_back(res1_ops[l]);
+
+        // LayerNorm 2
+        ly.ln2_gamma = make_tensor(d_model);
+        ly.ln2_beta = make_tensor(d_model);
+        ly.ln2_out = make_tensor(seq_len * d_model);
+        std::cout << "  layer_norm_2 : " << d_model << std::endl;
+        ln2_ops[l] = new TextLayerNorm(*ly.ln2_out, *ly.res1, *ly.ln2_gamma, *ly.ln2_beta, seq_len, d_model);
+        ops.push_back(ln2_ops[l]);
+
+        // FFN: GELU activation (GPT style)
+        float lim1 = sqrt(6.0f / (d_model + d_ff));
+        float lim2 = sqrt(6.0f / (d_ff + d_model));
+        ly.ffn_w1 = make_tensor(d_model * d_ff);
+        ly.ffn_w2 = make_tensor(d_ff * d_model);
+        for (int i = 0; i < d_model * d_ff; i++)
+            ly.ffn_w1->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * lim1;
+        for (int i = 0; i < d_ff * d_model; i++)
+            ly.ffn_w2->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * lim2;
+        ly.ffn_hidden = make_tensor(seq_len * d_ff);
+        ly.ffn_gelu = make_tensor(seq_len * d_ff);
+        ly.ffn_out = make_tensor(seq_len * d_model);
+
+        std::cout << "  ffn : " << d_model << " → " << d_ff << " (GELU) → " << d_model << std::endl;
+        ffn1_ops[l] = new TextMatmul(*ly.ffn_hidden, *ly.ln2_out, *ly.ffn_w1, seq_len, d_model, d_ff);
+        ops.push_back(ffn1_ops[l]);
+        gelu_ops[l] = new TextGELU(*ly.ffn_gelu, *ly.ffn_hidden, seq_len * d_ff);
+        ops.push_back(gelu_ops[l]);
+        ffn2_ops[l] = new TextMatmul(*ly.ffn_out, *ly.ffn_gelu, *ly.ffn_w2, seq_len, d_ff, d_model);
+        ops.push_back(ffn2_ops[l]);
+
+        // Residual 2
+        ly.res2 = make_tensor(seq_len * d_model);
+        std::cout << "  residual_add" << std::endl;
+        res2_ops[l] = new TextAdd(*ly.res2, *ly.res1, *ly.ffn_out, seq_len * d_model, false);
+        ops.push_back(res2_ops[l]);
+
+        std::cout << "--- end transformer_block " << l << " ---" << std::endl;
+
+        // Adam for this layer's weights
+        add_adam(ly.Wq, wsize); add_adam(ly.Wk, wsize);
+        add_adam(ly.Wv, wsize); add_adam(ly.Wo, wsize);
+        add_adam(ly.ln1_gamma, d_model); add_adam(ly.ln1_beta, d_model);
+        add_adam(ly.ln2_gamma, d_model); add_adam(ly.ln2_beta, d_model);
+        add_adam(ly.ffn_w1, d_model * d_ff); add_adam(ly.ffn_w2, d_ff * d_model);
+
+        prev_output = ly.res2;
+    }
+
+    // Output projection
+    std::cout << "output_proj : " << d_model << " x " << vocab_size << std::endl;
+    TextMatmul out_proj(*logits, *prev_output, *out_weight, seq_len, d_model, vocab_size);
+    ops.push_back(&out_proj);
+    add_adam(out_weight, d_model * vocab_size);
+
+    std::cout << "cross_entropy_loss" << std::endl;
+    TextCrossEntropy loss_op(*loss_tensor, *logits, seq_len, vocab_size);
+    ops.push_back(&loss_op);
+
+    std::cout << std::endl;
+    std::cout << "📊 Total parameters: " << param_count << std::endl;
+    std::cout << std::endl;
+
+    // 設定 input/target
+    std::vector<int> input_ids(token_ids.begin(), token_ids.begin() + seq_len);
+    std::vector<int> target_ids(token_ids.begin() + 1, token_ids.begin() + 1 + seq_len);
+    emb_op.set_indices(input_ids);
+    loss_op.set_targets(target_ids);
+
+    // === 訓練 ===
+    std::cout << "🏋️ Training with Adam optimizer..." << std::endl;
+    int adam_t = 0;
+
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        // Forward
+        for (auto op : ops) op->forward();
+
+        float loss = loss_tensor->data[0].val;
+
+        // Accuracy
+        int correct = 0;
+        for (int i = 0; i < seq_len; i++) {
+            float max_val = -1e9f;
+            int max_idx = 0;
+            for (int j = 0; j < vocab_size; j++) {
+                float v = logits->data[i * vocab_size + j].val;
+                if (v > max_val) { max_val = v; max_idx = j; }
+            }
+            if (max_idx == target_ids[i]) correct++;
+        }
+        float acc = (float)correct / seq_len * 100;
+
+        if (epoch % 50 == 0 || acc >= 100.0f) {
+            std::cout << "  Epoch " << std::setw(4) << epoch
+                      << " | loss=" << std::fixed << std::setprecision(4) << loss
+                      << " | acc=" << correct << "/" << seq_len
+                      << " (" << std::setprecision(1) << acc << "%)" << std::endl;
+        }
+
+        if (acc >= 100.0f && epoch > 5) {
+            std::cout << std::endl;
+            std::cout << "🎉 Converged at epoch " << epoch << "!" << std::endl;
+            break;
+        }
+
+        // Backward
+        for (int i = ops.size() - 1; i >= 0; i--) ops[i]->backward();
+
+        // Adam update
+        adam_t++;
+        for (auto &ap : adam_params)
+            ap.second.step(ap.first, ap.first->data.size(), adam_t, lr);
+
+        // Clear intermediate diffs
+        for (auto op : ops) op->clear();
+    }
+
+    // === 推理 ===
+    std::cout << std::endl;
+    std::string prompt_str = "誰是Nami？";
+    std::vector<std::string> prompt_chars = utf8_chars(prompt_str);
+    std::vector<int> prompt_ids;
+    for (auto &ch : prompt_chars)
+        for (int j = 0; j < vocab_size; j++)
+            if (vocab[j] == ch) { prompt_ids.push_back(j); break; }
+
+    std::cout << "🔮 Input: " << prompt_str << std::endl;
+
+    // 自回歸生成（greedy）
+    std::vector<int> gen_ids = prompt_ids;
+    int max_gen = total_len - prompt_ids.size();
+
+    for (int step = 0; step < max_gen; step++) {
+        int cur_len = gen_ids.size();
+        std::vector<int> cur_input(seq_len, 0);
+        int offset = 0;
+        if (cur_len > seq_len) offset = cur_len - seq_len;
+        for (int i = 0; i < seq_len && (offset + i) < cur_len; i++)
+            cur_input[i] = gen_ids[offset + i];
+
+        emb_op.set_indices(cur_input);
+        for (auto op : ops) op->forward();
+
+        int last_pos = std::min(cur_len - 1, seq_len - 1);
+        float max_val = -1e9f;
+        int max_idx = 0;
+        for (int j = 0; j < vocab_size; j++) {
+            float v = logits->data[last_pos * vocab_size + j].val;
+            if (v > max_val) { max_val = v; max_idx = j; }
+        }
+        gen_ids.push_back(max_idx);
+        for (auto op : ops) op->clear();
+    }
+
+    std::string generated = "";
+    for (int i = prompt_ids.size(); i < (int)gen_ids.size(); i++)
+        generated += vocab[gen_ids[i]];
+
+    std::cout << "🔮 Generated: " << generated << std::endl;
+    std::cout << std::endl;
+
+    std::string expected = "Nami是厲害的AI工程師";
+    if (generated == expected)
+        std::cout << "✅ Perfect! GPT-1 Mini 成功！" << std::endl;
+    else
+        std::cout << "⚠️  Expected: " << expected << std::endl;
+
+    // 清理
+    delete emb_weight; delete pos_enc; delete emb_out; delete pos_out;
+    for (auto &ly : layers) {
+        delete ly.ln1_gamma; delete ly.ln1_beta; delete ly.ln1_out;
+        delete ly.Wq; delete ly.Wk; delete ly.Wv; delete ly.Wo;
+        delete ly.mha_out; delete ly.res1;
+        delete ly.ln2_gamma; delete ly.ln2_beta; delete ly.ln2_out;
+        delete ly.ffn_w1; delete ly.ffn_w2;
+        delete ly.ffn_hidden; delete ly.ffn_gelu; delete ly.ffn_out;
+        delete ly.res2;
+    }
+    for (int l = 0; l < num_layers; l++) {
+        delete ln1_ops[l]; delete mha_ops[l]; delete res1_ops[l];
+        delete ln2_ops[l]; delete ffn1_ops[l]; delete gelu_ops[l];
+        delete ffn2_ops[l]; delete res2_ops[l];
+    }
+    delete out_weight; delete logits; delete loss_tensor;
+}
+
 int main(int argc, char *argv[])
 {
     // Parse command line arguments
@@ -6161,6 +6547,9 @@ int main(int argc, char *argv[])
             run_test = true;
         } else if (std::string(argv[1]) == "--text") {
             use_text = true;
+        } else if (std::string(argv[1]) == "--gpt") {
+            run_gpt_mini();
+            return 0;
         }
     }
     

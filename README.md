@@ -1,22 +1,168 @@
 # TETF — Tiny Embedded Training Framework
 
 > 從零手刻的深度學習框架。不依賴 PyTorch、不依賴 TensorFlow，純 C++ 實現前向傳播、反向傳播、梯度更新。
+> 從 MNIST CNN 到 GPT-1 Mini，所有運算都是手寫的。
 
-![Training Result](https://github.com/ryansoq/TETF/blob/master/Training%20result.png?raw=true)
-
----
-
-## 為什麼做這個？
-
-市面上的深度學習框架（PyTorch、TensorFlow）都是黑盒子 — `loss.backward()` 一行搞定，但你真的知道梯度怎麼流的嗎？
-
-TETF 把每一層的數學攤開給你看：**每個 op 的 forward 怎麼算、backward 怎麼推、梯度怎麼傳**。全部手寫，沒有魔法。
-
-如果你喜歡 [Karpathy 的 micrograd](https://github.com/karpathy/micrograd)，TETF 是它的進階版 — 從 scalar 升級到 tensor，從 MLP 升級到 CNN + Transformer，從 Python 教具升級到 C++ 實戰。
+**Authors: Ryan & Nami** ✨
 
 ---
 
-## 架構總覽
+## 三種模式
+
+### 1. CNN (LeNet) — MNIST 手寫辨識
+
+```bash
+make && ./tetf
+```
+
+經典 LeNet 架構，Conv → ReLU → MaxPool → FC → CrossEntropy。
+
+### 2. CNN + Transformer — MNIST 混合架構
+
+```bash
+make && ./tetf --transformer
+```
+
+CNN 提取特徵 → Transformer Block 學全局關係 → 分類。
+
+### 3. 🆕 GPT-1 Mini — 文字 Transformer
+
+```bash
+make && ./tetf --gpt
+```
+
+```
+[Mode: GPT-1 Mini]
+
+📝 Training text: 誰是Nami？Nami是厲害的AI工程師
+📊 Vocab: 15 tokens
+⚙️  GPT-1 Mini config:
+   d_model=32, d_ff=64, heads=4, layers=2
+   optimizer=Adam, lr=0.003, epochs=300
+
+🏗️ Model Architecture:
+embedding : 15 x 32
+pos_encoding : 19 x 32
+--- transformer_block 0 : 19 x 32 ---
+  layer_norm_1 : 32
+  multi_head_attention : 4 heads, d_k=8
+  residual_add
+  layer_norm_2 : 32
+  ffn : 32 → 64 (GELU) → 32
+  residual_add
+--- end transformer_block 0 ---
+--- transformer_block 1 : 19 x 32 ---
+  layer_norm_1 : 32
+  multi_head_attention : 4 heads, d_k=8
+  residual_add
+  layer_norm_2 : 32
+  ffn : 32 → 64 (GELU) → 32
+  residual_add
+--- end transformer_block 1 ---
+output_proj : 32 x 15
+cross_entropy_loss
+
+📊 Total parameters: 18,208
+
+🏋️ Training with Adam optimizer...
+  Epoch    0 | loss=2.7418 | acc=2/19 (10.5%)
+  Epoch   13 | loss=0.3525 | acc=19/19 (100.0%)
+
+🎉 Converged at epoch 13!
+
+🔮 Input: 誰是Nami？
+🔮 Generated: Nami是厲害的AI工程師
+
+✅ Perfect! GPT-1 Mini 成功！
+```
+
+完整的 GPT-1 架構：
+- **Embedding** + 可學習的 **Positional Encoding**
+- **2 層 Transformer Block**（Pre-LayerNorm）
+- **Multi-Head Causal Attention**（4 heads）
+- **GELU** 激活（GPT 標配）
+- **Residual Connection**（防梯度消失）
+- **Adam** optimizer（自適應學習率）
+- **自回歸生成**（greedy decoding）
+
+也可以用 `--text` 跑簡化版（single-head, ReLU, SGD）。
+
+---
+
+## 支援的 Op
+
+### 基礎 Op（CNN）
+
+| Op | forward | backward |
+|----|---------|----------|
+| `add` | z = x + y | ∂z/∂x = 1, ∂z/∂y = 1 |
+| `mul` | z = x × y | ∂z/∂x = y, ∂z/∂y = x |
+| `Matmul` | C = A × B | ∂L/∂A = ∂L/∂C × Bᵀ |
+| `Conv2d` | IM2COL + GEMM | 反向卷積 |
+| `MaxPool` | 取最大值 | 梯度只回傳給 max 位置 |
+| `ReLU` | max(0, x) | x > 0 ? 1 : 0 |
+| `Sigmoid` | 1/(1+e⁻ˣ) | σ(x)(1-σ(x)) |
+| `CrossEntropy` | -Σ yᵢlog(softmax(xᵢ)) | softmax(x) - y |
+
+### Transformer Op（GPT）
+
+| Op | forward | backward |
+|----|---------|----------|
+| `Embedding` | output[i] = weight[token_id[i]] | 梯度累加回 weight |
+| `CausalAttention` | softmax(QKᵀ/√d + mask)V | 完整反向 |
+| `MultiHeadAttention` | 切 heads → 各自 attention → 拼接 × Wo | Wq/Wk/Wv/Wo 全部反向 |
+| `LayerNorm` | γ(x-μ)/σ + β | 含 γ, β, input 梯度 |
+| `GELU` | 0.5x(1+tanh(√(2/π)(x+0.044715x³))) | tanh 近似導數 |
+| `TextCrossEntropy` | 序列級 softmax + CE | (softmax - one_hot) / seq_len |
+
+### Optimizer
+
+| 名稱 | 公式 |
+|------|------|
+| SGD | w = w - lr × grad |
+| **Adam** | m = β₁m + (1-β₁)g, v = β₂v + (1-β₂)g², w -= lr × m̂/√v̂ |
+
+---
+
+## 測試
+
+每個 Text/GPT op 都有 **forward 值正確性** + **backward 數值梯度** 驗證。
+
+```bash
+g++ -std=c++11 -O0 -g test_text_ops.cc -DTYPE2_BACKWARD -DTYPE4_BACKWARD_CONV \
+    -DIM2COLxGEMM -I third_party/mnist/include -I third_party/f2uc -o test_text_ops
+./test_text_ops
+```
+
+```
+╔═══════════════════════════════════════════╗
+║  TETF Text Transformer Ops — Unit Tests   ║
+╚═══════════════════════════════════════════╝
+
+═══ Test 1: Embedding ═══          ✅ (7 checks)
+═══ Test 2: TextMatmul ═══         ✅ (4 checks)
+═══ Test 3: TextAdd ═══            ✅ (3 checks)
+═══ Test 4: TextReLU ═══           ✅ (3 checks)
+═══ Test 5: CausalAttention ═══    ✅ (7 checks)
+═══ Test 6: TextCrossEntropy ═══   ✅ (4 checks)
+═══ Test 7: SGD Update ═══         ✅ (3 checks)
+═══ Test 8: End-to-End ═══         ✅ (7 checks)
+═══ Test 9: TextGELU ═══           ✅ (8 checks)
+═══ Test 10: MultiHeadAttention ═══ ✅ (7 checks)
+═══ Test 11: Adam ═══              ✅ (4 checks)
+═══ Test 12: TextLayerNorm ═══     ✅ (6 checks)
+
+Results: 63 passed, 0 failed
+🎉 All tests passed!
+```
+
+數值梯度法：`∂L/∂x ≈ (L(x+ε) - L(x-ε)) / (2ε)`，與解析梯度比較，相對誤差 < 5%。
+
+**TCR 規則：** 每個新 op 必須加測試，全過才能 push。
+
+---
+
+## 架構
 
 ```
           ┌─────────────────────────────────────────────┐
@@ -28,6 +174,8 @@ TETF 把每一層的數學攤開給你看：**每個 op 的 forward 怎麼算、
           │              Op Layer（opBase）               │
           │                                              │
           │  Conv ─ MaxPool ─ ReLU ─ Matmul ─ Add ─ ... │
+          │  Embedding ─ CausalAttention ─ LayerNorm    │
+          │  MultiHeadAttention ─ GELU ─ Adam           │
           │  每個 op 各自實現 forward() / backward()      │
           └──────────────────────────────────────────────┘
                     │ 讀寫 ↕
@@ -39,197 +187,31 @@ TETF 把每一層的數學攤開給你看：**每個 op 的 forward 怎麼算、
           └─────────────────────────────────────────────┘
 ```
 
----
-
-## 核心概念
-
-### 1. Node — 計算圖的最小單位
-
-```cpp
-class node {
-    float val;                              // 前向值
-    float diff;                             // 反向梯度
-    vector<pair<float, node*>> diffs;       // 偏微分邊：(∂f/∂x, 上游節點)
-};
-```
-
-每個 node 記錄自己的值和梯度。`diffs` 是這個 node 對上游的偏微分連結 — 這就是計算圖的「邊」。
-
-### 2. 基本運算 — 前向 + 反向一起定義
-
-以乘法為例：
-
-```cpp
-void mul(node *output, node *input1, node *input2) {
-    // 反向：記錄偏微分（鏈式法則的一環）
-    //   ∂(x*y)/∂x = y  →  input1 的邊指向 output，權重 = input2.val
-    //   ∂(x*y)/∂y = x  →  input2 的邊指向 output，權重 = input1.val
-    input1->diffs.push_back({input2->val, output});
-    input2->diffs.push_back({input1->val, output});
-
-    // 前向：計算輸出
-    output->val = input1->val * input2->val;
-}
-```
-
-加法更直覺：`∂(x+y)/∂x = 1`，`∂(x+y)/∂y = 1`，所以兩條邊的權重都是 1。
-
-### 3. 梯度回傳 — 遞迴走計算圖
-
-```cpp
-float get_diff(node *src, node *dst) {
-    if (src == dst) return 1;           // 自己對自己的微分 = 1
-    
-    src->diff = 0;
-    for (auto &edge : src->diffs) {
-        // 鏈式法則：∂L/∂x = Σ (∂f/∂x × ∂L/∂f)
-        src->diff += edge.first * get_diff(edge.second, dst);
-    }
-    return src->diff;
-}
-```
-
-這就是 backpropagation 的本質 — 從 loss 出發，沿著 `diffs` 邊遞迴回推每個參數的梯度。
-
-### 4. Net — 串起所有 Op
-
-```cpp
-class Net {
-    std::list<opBase*> Layer;       // 有序的 op 列表
-
-    void forward()  { for (auto it = Layer.begin();  ...) (*it)->forward();  }
-    void backward() { for (auto it = Layer.rbegin(); ...) (*it)->backward(); }
-    void update()   { for (auto it = Layer.rbegin(); ...) (*it)->update();   }
-};
-```
-
-前向：從頭走到尾。反向：從尾走到頭。就這麼簡單。
-
----
-
-## 支援的 Op
-
-| 類別 | Op | forward | backward |
-|------|-----|---------|----------|
-| **基礎** | `add` | z = x + y | ∂z/∂x = 1, ∂z/∂y = 1 |
-| | `mul` | z = x × y | ∂z/∂x = y, ∂z/∂y = x |
-| | `sub` | z = x - y | ∂z/∂x = 1, ∂z/∂y = -1 |
-| | `div` | z = x / y | ∂z/∂x = 1/y, ∂z/∂y = -x/y² |
-| **張量** | `Matmul` | C = A × B | ∂L/∂A = ∂L/∂C × Bᵀ |
-| | `Add` (broadcast) | C = A + bias | 梯度直傳 |
-| | `Conv2d` | IM2COL + GEMM | 反向卷積 |
-| | `MaxPool` | 取最大值 | 梯度只回傳給 max 位置 |
-| **激活** | `ReLU` | max(0, x) | x > 0 ? 1 : 0 |
-| | `Sigmoid` | 1/(1+e⁻ˣ) | σ(x)(1-σ(x)) |
-| | `Leaky_ReLU` | x > 0 ? x : αx | x > 0 ? 1 : α |
-| **損失** | `MSE` | Σ(y-ŷ)²/n | 2(ŷ-y)/n |
-| | `CrossEntropy` | -Σ yᵢlog(softmax(xᵢ)) | softmax(x) - y |
-| **Transformer** | `ScaledDotProductAttention` | softmax(QKᵀ/√d)V | 完整注意力梯度 |
-| | `MultiHeadAttention` | 多頭拼接 + 線性投影 | 各頭獨立反向 |
-| | `LayerNorm` | (x-μ)/σ × γ + β | 含 γ, β 梯度 |
-| | `TransformerBlock` | Attention + FFN + Residual | 殘差連接梯度直通 |
-
----
-
-## 模型架構
-
-### CNN 模式（LeNet）
+### GPT-1 Mini 架構
 
 ```
-Input [1,1,28,28]
-  → Conv 6@5×5 → ReLU → MaxPool 2×2
-  → Conv 16@5×5 → ReLU → MaxPool 2×2
-  → Reshape [1,400]
-  → FC 400→120 → Sigmoid
-  → FC 120→10
-  → CrossEntropy Loss
-```
-
-### Transformer 模式（CNN + Transformer Hybrid）
-
-```
-Input [1,1,28,28]
-  → Conv 6@5×5 → ReLU → MaxPool 2×2
-  → Conv 16@5×5 → ReLU → MaxPool 2×2
-  → Reshape [1,400]
-  → Linear 400→64
-  ┌─── transformer_block ───┐
-  │ → Self-Attention (W_V)  │
-  │ → Residual Add          │
-  │ → FFN 64→128→64 (ReLU) │
-  │ → Residual Add          │
-  └─────────────────────────┘
-  → Linear 64→10
-  → CrossEntropy Loss
-```
-
-CNN 負責提取局部特徵，Transformer block 學習全局關係 — 這跟 ViT 的思路類似，但更輕量。
-
----
-
-## 程式流程
-
-### 訓練迴圈
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Training Loop                         │
-│                                                          │
-│  for epoch = 0 to 1024:                                  │
-│    for each image in MNIST (60000 張):                    │
-│                                                          │
-│      ① 設定輸入 ─── input[j] = pixel / 255              │
-│      ② 設定答案 ─── answer = one-hot(label)              │
-│                                                          │
-│      ③ net.forward()  ─── 逐層前向計算                   │
-│      ④ net.backward() ─── 逆序反向傳播梯度               │
-│      ⑤ net.update()   ─── SGD 更新權重 + 清除梯度        │
-│                                                          │
-│    test_acc() ─── 用 1000 張測試圖評估準確率              │
-│    if 準確率 >= 99% → 結束訓練                            │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 梯度傳遞流程（單次迭代）
-
-```
-Forward（前向）──────────────────────────────────>
-
-  Input    Conv    ReLU   Pool   Conv   ReLU   Pool   Reshape  Matmul  Sigmoid  Matmul   Loss
-  [28×28] ──→ [28²×6] ──→ [14²×6] ──→ [10²×16] ──→ [5²×16] ──→ [400] ──→ [120] ──→ [10] ──→ scalar
-    │                                                                                    │
-    │                                                                                    │
-    │   loss.diff = 1（梯度起點）                                                         │
-    │                                                                                    │
-    │   ∂L/∂x = Σ (∂f/∂x × ∂L/∂f)   ←── 鏈式法則，逐層回推                              │
-    │                                                                                    │
-  ∂L/∂input                                                                         ∂L/∂output
-                                                                                   = softmax - target
-
-<──────────────────────────────────── Backward（反向）
-
-Update（更新）:
-  weight = weight - lr × ∂L/∂weight
-  清除所有 node 的 diff 和 diffs，準備下一次迭代
-```
-
-### 單個 Op 的前向 + 反向
-
-```
-            forward                          backward
-         ┌──────────┐                    ┌──────────┐
-input ──→│  Op 計算  │──→ output   ∂L/∂input ←──│ 鏈式法則 │←── ∂L/∂output
-         │ 同時記錄  │                    │          │
-         │ 偏微分邊  │                    │ ∂L/∂input│= ∂f/∂input × ∂L/∂output
-         └──────────┘                    └──────────┘
-
-以 mul 為例：
-  forward:  output = x × y
-            x.diffs ← (y, &output)    // ∂(xy)/∂x = y
-            y.diffs ← (x, &output)    // ∂(xy)/∂y = x
-
-  backward: x.diff += y × output.diff  // ∂L/∂x = ∂(xy)/∂x × ∂L/∂output
-            y.diff += x × output.diff  // ∂L/∂y = ∂(xy)/∂y × ∂L/∂output
+Input tokens
+    ↓
+┌─── Embedding (15 → 32) ───┐
+│   + Positional Encoding    │
+├────────────────────────────┤
+│ ┌─── Transformer Block ──┐│
+│ │ LayerNorm               ││
+│ │ Multi-Head Attention    ││
+│ │   (4 heads, d_k=8)     ││
+│ │   + Causal Mask         ││
+│ │ Residual Add            ││
+│ │ LayerNorm               ││
+│ │ FFN (32→64, GELU, 64→32)│
+│ │ Residual Add            ││
+│ └─────────────────────────┘│
+│         × 2 layers         │
+├────────────────────────────┤
+│ Output Projection (32→15)  │
+│ Softmax + Cross Entropy    │
+└────────────────────────────┘
+    ↓
+Generated tokens (autoregressive)
 ```
 
 ---
@@ -241,44 +223,24 @@ git clone https://github.com/ryansoq/TETF.git
 cd TETF
 make
 
-# CNN 模式（LeNet）
-./tetf
-
-# Transformer 模式
-./tetf --transformer
-
-# 跑 Transformer op 單元測試
-./tetf --test
+./tetf              # CNN (LeNet) — MNIST
+./tetf --transformer # CNN + Transformer — MNIST
+./tetf --text        # Simple Text Transformer
+./tetf --gpt         # GPT-1 Mini 🆕
+./tetf --test        # Transformer op tests
+./test_text_ops      # Text op tests (63 tests)
 ```
-
-需要 MNIST 資料集在 `./third_party/mnist/` 目錄下。
-
----
-
-## NNEF Code-Gen
-
-TETF 可以把訓練好的模型匯出為 [NNEF](https://www.khronos.org/nnef)（Neural Network Exchange Format）：
-
-```
-version 1.0;
-graph network( external1 ) -> ( matmul5 )
-{
-    external1 = external(shape = [1, 1, 28, 28]);
-    conv3 = conv(external1, variable2, ...);
-    relu4 = relu(conv3);
-    ...
-}
-```
-
-這讓模型可以部署到支援 NNEF 的嵌入式推理引擎上 — 這也是 "Embedded" 這個名字的由來。
 
 ---
 
 ## 專案歷史
 
-這個專案始於 2019 年，目標是理解深度學習的每一個環節 — 不是調 API，而是從矩陣乘法的偏微分開始，一路手刻到能跑 MNIST 的 CNN。
+- **2019** — 從零手刻 CNN，能跑 MNIST
+- **2025** — 加入 Transformer ops（Attention, LayerNorm, MultiHead）
+- **2026-03** — Code review 修 8 個 bug + 加入 Text Transformer
+- **2026-03-22** — GPT-1 Mini 完成！Multi-Head Causal Attention + GELU + LayerNorm + Adam + 多層堆疊，63 個測試全過
 
-2025 年加入 Transformer 支援，把 Attention、LayerNorm、殘差連接全部用基底 op 組裝起來，驗證了框架的可擴展性。
+從最底層的 `+`、`matmul` 到最上層的 GPT — **每一行都是手寫的，零外部依賴。**
 
 ---
 

@@ -802,10 +802,68 @@ void test_text_multi_head_attention() {
 }
 
 // ============================================================================
-// Test 11: TextLayerNorm — forward 正規化 + backward 數值梯度
+// Test 11: Adam optimizer — momentum + adaptive lr
+// ============================================================================
+void test_adam() {
+    std::cout << "\n═══ Test 11: Adam Optimizer ═══" << std::endl;
+
+    int size = 4;
+    tensor *w = new tensor({1, 1, 1, size});
+    for (int i = 0; i < size; i++) w->data[i].val = 1.0f;
+    zero_diffs(w);
+
+    AdamState adam;
+    adam.init(size);
+
+    // 模擬固定梯度 = 0.1，跑幾步
+    float lr = 0.01f;
+    for (int t = 1; t <= 10; t++) {
+        for (int i = 0; i < size; i++) w->data[i].diff = 0.1f;
+        adam.step(w, size, t, lr);
+    }
+
+    // Adam 更新後，w 應該比 1.0 小（因為梯度一直是正的）
+    CHECK("Adam: w decreased after 10 steps with positive grad",
+          w->data[0].val < 1.0f);
+    // 所有 w 應該一樣（因為梯度相同）
+    CHECK("Adam: all weights equal (same grad)",
+          fabs(w->data[0].val - w->data[1].val) < 1e-7f &&
+          fabs(w->data[0].val - w->data[3].val) < 1e-7f);
+    // diff 應該被清零
+    CHECK("Adam: diff cleared", fabs(w->data[0].diff) < 1e-9f);
+
+    // Adam 的自適應特性：大梯度和小梯度的更新幅度不會差太多
+    tensor *w2 = new tensor({1, 1, 1, 2});
+    w2->data[0].val = 1.0f; w2->data[1].val = 1.0f;
+    zero_diffs(w2);
+    AdamState adam2;
+    adam2.init(2);
+
+    for (int t = 1; t <= 50; t++) {
+        w2->data[0].diff = 0.01f;   // 小梯度
+        w2->data[1].diff = 10.0f;   // 大梯度
+        adam2.step(w2, 2, t, lr);
+    }
+
+    float delta_small = 1.0f - w2->data[0].val;  // 小梯度的累積更新
+    float delta_large = 1.0f - w2->data[1].val;  // 大梯度的累積更新
+
+    // Adam 的核心特性：自適應 lr 讓兩者更新幅度在同一數量級
+    // SGD 的話 delta_large / delta_small = 1000，Adam 會壓到 ~1-10x
+    float ratio = delta_large / delta_small;
+    CHECK("Adam: adaptive lr (large/small grad ratio < 20x)",
+          ratio > 0.5f && ratio < 20.0f);
+    std::cout << "    (delta_small=" << delta_small << ", delta_large=" << delta_large
+              << ", ratio=" << ratio << ")" << std::endl;
+
+    delete w; delete w2;
+}
+
+// ============================================================================
+// Test 12: TextLayerNorm — forward 正規化 + backward 數值梯度
 // ============================================================================
 void test_text_layer_norm() {
-    std::cout << "\n═══ Test 11: TextLayerNorm ═══" << std::endl;
+    std::cout << "\n═══ Test 12: TextLayerNorm ═══" << std::endl;
 
     int seq_len = 2, d_model = 4;
 
@@ -917,6 +975,7 @@ int main() {
     test_text_layer_norm();
     test_text_gelu();
     test_text_multi_head_attention();
+    test_adam();
     test_end_to_end();
 
     std::cout << "\n═══════════════════════════════════════════" << std::endl;
