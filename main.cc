@@ -3140,6 +3140,492 @@ void add(node *out, node *a, node *b, int length)
  *   2. ∂L/∂attention = ∂L/∂output × Vᵀ → 通過 softmax 反向
  *   3. ∂L/∂Q, ∂L/∂K 從 QKᵀ 的梯度推導
  */
+// ============================================================================
+// [TEXT] Embedding — 嵌入查表層
+//
+// forward:  output[i] = weight[indices[i]]  （查表）
+// backward: weight[indices[i]] += ∂L/∂output[i]  （梯度累加回對應 row）
+//
+// 用於把離散的 token ID 轉成連續的向量表示
+// ============================================================================
+class Embedding : public opBase
+{
+public:
+    tensor *output;     // [seq_len, d_model]
+    tensor *weight;     // [vocab_size, d_model]  — 嵌入矩陣
+    std::vector<int> indices;  // [seq_len] — 輸入的 token IDs
+    int vocab_size;
+    int d_model;
+    int seq_len;
+
+    Embedding(tensor &out, tensor &w, int vocab, int dim, int seq)
+    {
+        output = &out;
+        weight = &w;
+        vocab_size = vocab;
+        d_model = dim;
+        seq_len = seq;
+        indices.resize(seq);
+
+        nnCode.append(out.name + " = embedding(" + w.name + ");\n");
+    }
+
+    void set_indices(const std::vector<int> &idx)
+    {
+        for (int i = 0; i < seq_len && i < (int)idx.size(); i++)
+            indices[i] = idx[i];
+    }
+
+    void forward()
+    {
+        // 查表：output[i, :] = weight[indices[i], :]
+        for (int i = 0; i < seq_len; i++) {
+            int token_id = indices[i];
+            for (int j = 0; j < d_model; j++) {
+                output->data[i * d_model + j].val = weight->data[token_id * d_model + j].val;
+            }
+        }
+    }
+
+    void backward()
+    {
+        // 梯度累加回 weight 的對應 row
+        for (int i = 0; i < seq_len; i++) {
+            int token_id = indices[i];
+            for (int j = 0; j < d_model; j++) {
+                weight->data[token_id * d_model + j].diff += output->data[i * d_model + j].diff;
+            }
+        }
+    }
+
+    void update()
+    {
+        // SGD 更新嵌入矩陣
+        for (int i = 0; i < vocab_size * d_model; i++) {
+            weight->data[i].val -= cfg.lr * weight->data[i].diff;
+            weight->data[i].diff = 0;
+            weight->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        for (int i = 0; i < vocab_size * d_model; i++) {
+            weight->data[i].diff = 0;
+            weight->data[i].diffs.clear();
+        }
+        for (int i = 0; i < seq_len * d_model; i++) {
+            output->data[i].diff = 0;
+            output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
+// ============================================================================
+// [TEXT] CausalAttention — 帶因果遮罩的縮放點積注意力
+//
+// 跟 ScaledDotProductAttention 一樣，但加了 causal mask：
+// 上三角設為 -∞（-1e9），讓每個位置只能看到自己和之前的 token
+// ============================================================================
+class CausalAttention : public opBase
+{
+public:
+    tensor *output;
+    tensor *input_q, *input_k, *input_v;
+    int seq_len, d_k;
+    std::vector<float> attention_weights;
+
+    CausalAttention(tensor &out, tensor &q, tensor &k, tensor &v, int seq, int dk)
+    {
+        output = &out;
+        input_q = &q;
+        input_k = &k;
+        input_v = &v;
+        seq_len = seq;
+        d_k = dk;
+        attention_weights.resize(seq_len * seq_len);
+
+        nnCode.append(out.name + " = causal_attention(" + q.name + ", " + k.name + ", " + v.name + ");\n");
+    }
+
+    void forward()
+    {
+        float scale = 1.0f / sqrt((float)d_k);
+
+        // QKᵀ + causal mask + softmax
+        for (int i = 0; i < seq_len; i++) {
+            // 計算 scores
+            std::vector<float> scores(seq_len);
+            for (int j = 0; j < seq_len; j++) {
+                float score = 0.0f;
+                for (int k = 0; k < d_k; k++)
+                    score += input_q->data[i * d_k + k].val * input_k->data[j * d_k + k].val;
+                scores[j] = score * scale;
+
+                // 因果遮罩：看不到未來（j > i 的位置）
+                if (j > i) scores[j] = -1e9f;
+            }
+
+            // Softmax（數值穩定）
+            float max_val = *std::max_element(scores.begin(), scores.end());
+            float sum_exp = 0.0f;
+            for (int j = 0; j < seq_len; j++) {
+                scores[j] = exp(scores[j] - max_val);
+                sum_exp += scores[j];
+            }
+            for (int j = 0; j < seq_len; j++)
+                attention_weights[i * seq_len + j] = scores[j] / sum_exp;
+
+            // Attention × V
+            for (int j = 0; j < d_k; j++) {
+                output->data[i * d_k + j].val = 0.0f;
+                for (int k = 0; k < seq_len; k++)
+                    output->data[i * d_k + j].val += attention_weights[i * seq_len + k] * input_v->data[k * d_k + j].val;
+            }
+        }
+    }
+
+    void backward()
+    {
+        float scale = 1.0f / sqrt((float)d_k);
+
+        // ∂L/∂V
+        for (int i = 0; i < seq_len; i++)
+            for (int j = 0; j < d_k; j++)
+                for (int k = 0; k < seq_len; k++)
+                    input_v->data[k * d_k + j].diff += attention_weights[i * seq_len + k] * output->data[i * d_k + j].diff;
+
+        // ∂L/∂attention_weights
+        std::vector<float> d_attn(seq_len * seq_len, 0.0f);
+        for (int i = 0; i < seq_len; i++)
+            for (int k = 0; k < seq_len; k++)
+                for (int j = 0; j < d_k; j++)
+                    d_attn[i * seq_len + k] += input_v->data[k * d_k + j].val * output->data[i * d_k + j].diff;
+
+        // ∂L/∂scores (through softmax)
+        std::vector<float> d_scores(seq_len * seq_len);
+        for (int i = 0; i < seq_len; i++) {
+            float sum = 0.0f;
+            for (int k = 0; k < seq_len; k++)
+                sum += d_attn[i * seq_len + k] * attention_weights[i * seq_len + k];
+            for (int j = 0; j < seq_len; j++)
+                d_scores[i * seq_len + j] = attention_weights[i * seq_len + j] * (d_attn[i * seq_len + j] - sum);
+        }
+
+        // ∂L/∂Q, ∂L/∂K
+        for (int i = 0; i < seq_len; i++)
+            for (int j = 0; j < seq_len; j++) {
+                if (j > i) continue;  // causal mask: 遮罩位置沒有梯度
+                float grad = d_scores[i * seq_len + j] * scale;
+                for (int k = 0; k < d_k; k++) {
+                    input_q->data[i * d_k + k].diff += grad * input_k->data[j * d_k + k].val;
+                    input_k->data[j * d_k + k].diff += grad * input_q->data[i * d_k + k].val;
+                }
+            }
+    }
+
+    void update()
+    {
+        for (int i = 0; i < seq_len * d_k; i++) {
+            input_q->data[i].diff = 0; input_q->data[i].diffs.clear();
+            input_k->data[i].diff = 0; input_k->data[i].diffs.clear();
+            input_v->data[i].diff = 0; input_v->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        for (int i = 0; i < seq_len * d_k; i++) {
+            input_q->data[i].diff = 0; input_q->data[i].diffs.clear();
+            input_k->data[i].diff = 0; input_k->data[i].diffs.clear();
+            input_v->data[i].diff = 0; input_v->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
+// ============================================================================
+// [TEXT] TextCrossEntropy — 序列級交叉熵損失
+//
+// 對序列中每個位置獨立做 softmax + cross entropy，然後取平均
+// ============================================================================
+class TextCrossEntropy : public opBase
+{
+public:
+    tensor *output;   // loss scalar (size 1)
+    tensor *input;    // logits [seq_len, vocab_size]
+    std::vector<int> targets;  // target token IDs [seq_len]
+    int seq_len, vocab_size;
+    std::vector<float> probs;  // softmax 結果，backward 用
+
+    TextCrossEntropy(tensor &out, tensor &in, int seq, int vocab)
+    {
+        output = &out;
+        input = &in;
+        seq_len = seq;
+        vocab_size = vocab;
+        targets.resize(seq);
+        probs.resize(seq * vocab);
+
+        nnCode.append(out.name + " = text_cross_entropy(" + in.name + ");\n");
+    }
+
+    void set_targets(const std::vector<int> &tgt)
+    {
+        for (int i = 0; i < seq_len && i < (int)tgt.size(); i++)
+            targets[i] = tgt[i];
+    }
+
+    void forward()
+    {
+        float total_loss = 0.0f;
+        for (int i = 0; i < seq_len; i++) {
+            // Softmax for position i
+            float max_val = -1e9f;
+            for (int j = 0; j < vocab_size; j++) {
+                float v = input->data[i * vocab_size + j].val;
+                if (v > max_val) max_val = v;
+            }
+            float sum_exp = 0.0f;
+            for (int j = 0; j < vocab_size; j++) {
+                probs[i * vocab_size + j] = exp(input->data[i * vocab_size + j].val - max_val);
+                sum_exp += probs[i * vocab_size + j];
+            }
+            for (int j = 0; j < vocab_size; j++)
+                probs[i * vocab_size + j] /= sum_exp;
+
+            // Cross entropy: -log(p[target])
+            float p = probs[i * vocab_size + targets[i]];
+            total_loss += -log(p + 1e-10f);
+        }
+        output->data[0].val = total_loss / seq_len;
+    }
+
+    void backward()
+    {
+        // ∂L/∂logits = (softmax - one_hot) / seq_len
+        output->data[0].diff = 1.0f;
+        for (int i = 0; i < seq_len; i++) {
+            for (int j = 0; j < vocab_size; j++) {
+                float grad = probs[i * vocab_size + j];
+                if (j == targets[i]) grad -= 1.0f;
+                input->data[i * vocab_size + j].diff += grad / seq_len;
+            }
+        }
+    }
+
+    void update()
+    {
+        for (int i = 0; i < seq_len * vocab_size; i++) {
+            input->data[i].diff = 0;
+            input->data[i].diffs.clear();
+        }
+        output->data[0].diff = 0;
+        output->data[0].diffs.clear();
+    }
+
+    void clear()
+    {
+        for (int i = 0; i < seq_len * vocab_size; i++) {
+            input->data[i].diff = 0;
+            input->data[i].diffs.clear();
+        }
+        output->data[0].diff = 0;
+        output->data[0].diffs.clear();
+    }
+
+    void save() {}
+};
+
+// ============================================================================
+// [TEXT] TextMatmul — 矩陣乘法（帶權重更新）
+//
+// output = input × weight，SGD 更新 weight
+// ============================================================================
+class TextMatmul : public opBase
+{
+public:
+    tensor *output;   // [M, N]
+    tensor *input;    // [M, K]
+    tensor *weight;   // [K, N]
+    int M, K, N;
+
+    TextMatmul(tensor &out, tensor &in, tensor &w, int m, int k, int n)
+    {
+        output = &out;
+        input = &in;
+        weight = &w;
+        M = m; K = k; N = n;
+
+        nnCode.append(out.name + " = matmul(" + in.name + ", " + w.name + ");\n");
+    }
+
+    void forward()
+    {
+        for (int i = 0; i < M; i++)
+            for (int j = 0; j < N; j++) {
+                output->data[i * N + j].val = 0.0f;
+                for (int k = 0; k < K; k++)
+                    output->data[i * N + j].val += input->data[i * K + k].val * weight->data[k * N + j].val;
+            }
+    }
+
+    void backward()
+    {
+        // ∂L/∂input = ∂L/∂output × Wᵀ
+        for (int i = 0; i < M; i++)
+            for (int k = 0; k < K; k++)
+                for (int j = 0; j < N; j++)
+                    input->data[i * K + k].diff += output->data[i * N + j].diff * weight->data[k * N + j].val;
+
+        // ∂L/∂W = inputᵀ × ∂L/∂output
+        for (int k = 0; k < K; k++)
+            for (int j = 0; j < N; j++)
+                for (int i = 0; i < M; i++)
+                    weight->data[k * N + j].diff += input->data[i * K + k].val * output->data[i * N + j].diff;
+    }
+
+    void update()
+    {
+        for (int i = 0; i < K * N; i++) {
+            weight->data[i].val -= cfg.lr * weight->data[i].diff;
+            weight->data[i].diff = 0;
+            weight->data[i].diffs.clear();
+        }
+        for (int i = 0; i < M * K; i++) {
+            input->data[i].diff = 0;
+            input->data[i].diffs.clear();
+        }
+        for (int i = 0; i < M * N; i++) {
+            output->data[i].diff = 0;
+            output->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        for (int k = 0; k < K * N; k++) {
+            weight->data[k].diff = 0;
+            weight->data[k].diffs.clear();
+        }
+        for (int i = 0; i < M * K; i++) {
+            input->data[i].diff = 0;
+            input->data[i].diffs.clear();
+        }
+        for (int i = 0; i < M * N; i++) {
+            output->data[i].diff = 0;
+            output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
+// ============================================================================
+// [TEXT] TextAdd — 逐元素加法（帶權重更新，用於 bias / positional encoding）
+// ============================================================================
+class TextAdd : public opBase
+{
+public:
+    tensor *output;
+    tensor *input_a, *input_b;
+    int size;
+    bool update_b;  // 是否 SGD 更新 input_b
+
+    TextAdd(tensor &out, tensor &a, tensor &b, int sz, bool upd_b = true)
+    {
+        output = &out;
+        input_a = &a;
+        input_b = &b;
+        size = sz;
+        update_b = upd_b;
+
+        nnCode.append(out.name + " = add(" + a.name + ", " + b.name + ");\n");
+    }
+
+    void forward()
+    {
+        for (int i = 0; i < size; i++)
+            output->data[i].val = input_a->data[i].val + input_b->data[i].val;
+    }
+
+    void backward()
+    {
+        for (int i = 0; i < size; i++) {
+            input_a->data[i].diff += output->data[i].diff;
+            input_b->data[i].diff += output->data[i].diff;
+        }
+    }
+
+    void update()
+    {
+        for (int i = 0; i < size; i++) {
+            if (update_b) {
+                input_b->data[i].val -= cfg.lr * input_b->data[i].diff;
+            }
+            input_a->data[i].diff = 0; input_a->data[i].diffs.clear();
+            input_b->data[i].diff = 0; input_b->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        for (int i = 0; i < size; i++) {
+            input_a->data[i].diff = 0; input_a->data[i].diffs.clear();
+            input_b->data[i].diff = 0; input_b->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
+// ============================================================================
+// [TEXT] TextReLU — ReLU 激活
+// ============================================================================
+class TextReLU : public opBase
+{
+public:
+    tensor *output, *input;
+    int size;
+
+    TextReLU(tensor &out, tensor &in, int sz) : output(&out), input(&in), size(sz) {
+        nnCode.append(out.name + " = relu(" + in.name + ");\n");
+    }
+
+    void forward() {
+        for (int i = 0; i < size; i++)
+            output->data[i].val = (input->data[i].val > 0) ? input->data[i].val : 0;
+    }
+
+    void backward() {
+        for (int i = 0; i < size; i++)
+            input->data[i].diff += (input->data[i].val > 0) ? output->data[i].diff : 0;
+    }
+
+    void update() {
+        for (int i = 0; i < size; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear() {
+        for (int i = 0; i < size; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {
@@ -4915,20 +5401,304 @@ void run_transformer_tests() {
  *        → test_acc()        // 每個 epoch 後測試準確率
  *        → 達到目標準確率就提前結束
  */
+// ============================================================================
+// [TEXT] run_text_transformer — 文字 Transformer Demo
+//
+// 用 TETF 基礎元件組裝一個字元級 Transformer，學會回答：
+//   輸入: 誰是Nami？
+//   生成: Nami是厲害的AI工程師
+// ============================================================================
+
+// UTF-8 多字節字元切割
+std::vector<std::string> utf8_chars(const std::string &s) {
+    std::vector<std::string> chars;
+    size_t i = 0;
+    while (i < s.size()) {
+        int len = 1;
+        unsigned char c = s[i];
+        if (c >= 0xF0) len = 4;
+        else if (c >= 0xE0) len = 3;
+        else if (c >= 0xC0) len = 2;
+        chars.push_back(s.substr(i, len));
+        i += len;
+    }
+    return chars;
+}
+
+void run_text_transformer() {
+    std::cout << "[Mode: Text Transformer]" << std::endl;
+    std::cout << std::endl;
+
+    // === 訓練文本 ===
+    std::string text = "誰是Nami？Nami是厲害的AI工程師";
+    std::cout << "📝 Training text: " << text << std::endl;
+
+    // === 字元級 tokenizer ===
+    std::vector<std::string> all_chars = utf8_chars(text);
+    std::vector<std::string> vocab;
+    for (auto &ch : all_chars) {
+        bool found = false;
+        for (auto &v : vocab)
+            if (v == ch) { found = true; break; }
+        if (!found) vocab.push_back(ch);
+    }
+    int vocab_size = vocab.size();
+    std::cout << "📊 Vocab size: " << vocab_size << std::endl;
+
+    // 印出詞表
+    std::cout << "📖 Vocab: ";
+    for (int i = 0; i < vocab_size; i++)
+        std::cout << vocab[i] << "(" << i << ") ";
+    std::cout << std::endl;
+
+    // token ID 化
+    std::vector<int> token_ids;
+    for (auto &ch : all_chars) {
+        for (int j = 0; j < vocab_size; j++)
+            if (vocab[j] == ch) { token_ids.push_back(j); break; }
+    }
+    int total_len = token_ids.size();  // 全文長度
+    int seq_len = total_len - 1;       // 訓練序列長度（去掉最後一個 token）
+
+    // === 模型超參數 ===
+    int d_model = 32;
+    int d_ff = 64;
+    int epochs = 500;
+    cfg.lr = 0.05f;
+
+    std::cout << "⚙️  d_model=" << d_model << ", d_ff=" << d_ff 
+              << ", lr=" << cfg.lr << ", epochs=" << epochs << std::endl;
+    std::cout << std::endl;
+    std::cout << "🏋️ Training..." << std::endl;
+
+    // === 手動管理 tensor（繞過 4D shape 限制）===
+    // 不用 global Net，手動管理 op 列表
+    srand(42);
+
+    // Embedding 權重
+    tensor *emb_weight = new tensor({1, 1, vocab_size, d_model});
+    // 用小值初始化
+    for (int i = 0; i < vocab_size * d_model; i++)
+        emb_weight->data[i].val = ((float)rand() / RAND_MAX - 0.5f) * 0.1f;
+
+    // Positional encoding（可學習）
+    tensor *pos_enc = new tensor({1, 1, seq_len, d_model});
+    for (int i = 0; i < seq_len * d_model; i++)
+        pos_enc->data[i].val = ((float)rand() / RAND_MAX - 0.5f) * 0.1f;
+
+    // Embedding 輸出 + Position 相加後的輸出
+    tensor *emb_out = new tensor({1, 1, seq_len, d_model});
+    tensor *pos_out = new tensor({1, 1, seq_len, d_model});
+
+    // Attention: Wq, Wk, Wv
+    tensor *Wq = new tensor({1, 1, d_model, d_model});
+    tensor *Wk = new tensor({1, 1, d_model, d_model});
+    tensor *Wv = new tensor({1, 1, d_model, d_model});
+    for (int i = 0; i < d_model * d_model; i++) {
+        float limit = sqrt(6.0f / (d_model + d_model));
+        Wq->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+        Wk->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+        Wv->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+    }
+
+    // Q, K, V, Attention output
+    tensor *Q = new tensor({1, 1, seq_len, d_model});
+    tensor *K = new tensor({1, 1, seq_len, d_model});
+    tensor *V = new tensor({1, 1, seq_len, d_model});
+    tensor *attn_out = new tensor({1, 1, seq_len, d_model});
+
+    // Residual 1 output
+    tensor *res1 = new tensor({1, 1, seq_len, d_model});
+
+    // FFN: W1 [d_model, d_ff], W2 [d_ff, d_model]
+    tensor *ffn_w1 = new tensor({1, 1, d_model, d_ff});
+    tensor *ffn_w2 = new tensor({1, 1, d_ff, d_model});
+    for (int i = 0; i < d_model * d_ff; i++) {
+        float limit = sqrt(6.0f / (d_model + d_ff));
+        ffn_w1->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+    }
+    for (int i = 0; i < d_ff * d_model; i++) {
+        float limit = sqrt(6.0f / (d_ff + d_model));
+        ffn_w2->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+    }
+
+    tensor *ffn_hidden = new tensor({1, 1, seq_len, d_ff});
+    tensor *ffn_relu = new tensor({1, 1, seq_len, d_ff});
+    tensor *ffn_out = new tensor({1, 1, seq_len, d_model});
+
+    // Residual 2 output
+    tensor *res2 = new tensor({1, 1, seq_len, d_model});
+
+    // Output projection: [d_model, vocab_size]
+    tensor *out_weight = new tensor({1, 1, d_model, vocab_size});
+    for (int i = 0; i < d_model * vocab_size; i++) {
+        float limit = sqrt(6.0f / (d_model + vocab_size));
+        out_weight->data[i].val = ((float)rand() / RAND_MAX * 2 - 1) * limit;
+    }
+    tensor *logits = new tensor({1, 1, seq_len, vocab_size});
+    tensor *loss_tensor = new tensor({1, 1, 1, 1});
+
+    // === Op 物件 ===
+    Embedding emb_op(*emb_out, *emb_weight, vocab_size, d_model, seq_len);
+    TextAdd pos_add_op(*pos_out, *emb_out, *pos_enc, seq_len * d_model, true);
+    TextMatmul q_proj(*Q, *pos_out, *Wq, seq_len, d_model, d_model);
+    TextMatmul k_proj(*K, *pos_out, *Wk, seq_len, d_model, d_model);
+    TextMatmul v_proj(*V, *pos_out, *Wv, seq_len, d_model, d_model);
+    CausalAttention attn_op(*attn_out, *Q, *K, *V, seq_len, d_model);
+    TextAdd res1_op(*res1, *pos_out, *attn_out, seq_len * d_model, false);
+    TextMatmul ffn1_op(*ffn_hidden, *res1, *ffn_w1, seq_len, d_model, d_ff);
+    TextReLU relu_op(*ffn_relu, *ffn_hidden, seq_len * d_ff);
+    TextMatmul ffn2_op(*ffn_out, *ffn_relu, *ffn_w2, seq_len, d_ff, d_model);
+    TextAdd res2_op(*res2, *res1, *ffn_out, seq_len * d_model, false);
+    TextMatmul out_proj(*logits, *res2, *out_weight, seq_len, d_model, vocab_size);
+    TextCrossEntropy loss_op(*loss_tensor, *logits, seq_len, vocab_size);
+
+    // Op 列表（前向順序）
+    std::vector<opBase*> ops = {
+        &emb_op, &pos_add_op,
+        &q_proj, &k_proj, &v_proj, &attn_op, &res1_op,
+        &ffn1_op, &relu_op, &ffn2_op, &res2_op,
+        &out_proj, &loss_op
+    };
+
+    // 設定 input/target
+    std::vector<int> input_ids(token_ids.begin(), token_ids.begin() + seq_len);
+    std::vector<int> target_ids(token_ids.begin() + 1, token_ids.begin() + 1 + seq_len);
+    emb_op.set_indices(input_ids);
+    loss_op.set_targets(target_ids);
+
+    // === 訓練迴圈 ===
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        // Forward
+        for (auto op : ops) op->forward();
+
+        float loss = loss_tensor->data[0].val;
+
+        // 計算 accuracy
+        int correct = 0;
+        for (int i = 0; i < seq_len; i++) {
+            float max_val = -1e9f;
+            int max_idx = 0;
+            for (int j = 0; j < vocab_size; j++) {
+                float v = logits->data[i * vocab_size + j].val;
+                if (v > max_val) { max_val = v; max_idx = j; }
+            }
+            if (max_idx == target_ids[i]) correct++;
+        }
+        float acc = (float)correct / seq_len * 100;
+
+        if (epoch % 50 == 0 || acc >= 100.0f) {
+            std::cout << "  Epoch " << std::setw(4) << epoch 
+                      << " | loss=" << std::fixed << std::setprecision(4) << loss 
+                      << " | acc=" << correct << "/" << seq_len 
+                      << " (" << std::setprecision(2) << acc << "%)" << std::endl;
+        }
+
+        if (acc >= 100.0f && epoch > 10) {
+            std::cout << std::endl;
+            std::cout << "🎉 Converged at epoch " << epoch << "!" << std::endl;
+            break;
+        }
+
+        // Backward（逆序）
+        for (int i = ops.size() - 1; i >= 0; i--) ops[i]->backward();
+
+        // Update
+        for (auto op : ops) op->update();
+    }
+
+    // === 推理：自回歸生成 ===
+    std::cout << std::endl;
+
+    // 找到「？」的位置，切出 prompt
+    std::string prompt_str = "誰是Nami？";
+    std::vector<std::string> prompt_chars = utf8_chars(prompt_str);
+    std::vector<int> prompt_ids;
+    for (auto &ch : prompt_chars) {
+        for (int j = 0; j < vocab_size; j++)
+            if (vocab[j] == ch) { prompt_ids.push_back(j); break; }
+    }
+
+    std::cout << "🔮 Input: " << prompt_str << std::endl;
+
+    // 自回歸生成
+    std::vector<int> gen_ids = prompt_ids;
+    int max_gen = total_len - prompt_ids.size();
+
+    for (int step = 0; step < max_gen; step++) {
+        // 準備當前序列（pad 或截斷到 seq_len）
+        int cur_len = gen_ids.size();
+        std::vector<int> cur_input(seq_len, 0);
+        int offset = 0;
+        if (cur_len > seq_len) offset = cur_len - seq_len;
+        for (int i = 0; i < seq_len && (offset + i) < cur_len; i++)
+            cur_input[i] = gen_ids[offset + i];
+
+        emb_op.set_indices(cur_input);
+
+        // Forward only
+        for (auto op : ops) op->forward();
+
+        // 取最後一個有效位置的 logits
+        int last_pos = std::min(cur_len - 1, seq_len - 1);
+        float max_val = -1e9f;
+        int max_idx = 0;
+        for (int j = 0; j < vocab_size; j++) {
+            float v = logits->data[last_pos * vocab_size + j].val;
+            if (v > max_val) { max_val = v; max_idx = j; }
+        }
+
+        gen_ids.push_back(max_idx);
+
+        // Clear（推理後也要清理 diffs）
+        for (auto op : ops) op->clear();
+    }
+
+    // 輸出生成結果
+    std::string generated = "";
+    for (int i = prompt_ids.size(); i < (int)gen_ids.size(); i++)
+        generated += vocab[gen_ids[i]];
+
+    std::cout << "🔮 Generated: " << generated << std::endl;
+    std::cout << std::endl;
+
+    // 驗證
+    std::string expected = "Nami是厲害的AI工程師";
+    if (generated == expected)
+        std::cout << "✅ Perfect! Transformer 成功學會了這句話！" << std::endl;
+    else
+        std::cout << "⚠️  Not perfect yet. Expected: " << expected << std::endl;
+
+    // 清理記憶體
+    delete emb_weight; delete pos_enc; delete emb_out; delete pos_out;
+    delete Wq; delete Wk; delete Wv; delete Q; delete K; delete V; delete attn_out;
+    delete res1; delete ffn_w1; delete ffn_w2; delete ffn_hidden; delete ffn_relu;
+    delete ffn_out; delete res2; delete out_weight; delete logits; delete loss_tensor;
+}
+
 int main(int argc, char *argv[])
 {
     // Parse command line arguments
     bool use_transformer = false;
     bool run_test = false;
+    bool use_text = false;
     
     if (argc > 1) {
         if (std::string(argv[1]) == "--transformer") {
             use_transformer = true;
         } else if (std::string(argv[1]) == "--test") {
             run_test = true;
+        } else if (std::string(argv[1]) == "--text") {
+            use_text = true;
         }
     }
     
+    // Run text transformer mode
+    if (use_text) {
+        run_text_transformer();
+        return 0;
+    }
+
     // Run test mode if requested
     if (run_test) {
         run_transformer_tests();
