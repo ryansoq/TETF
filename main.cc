@@ -5539,19 +5539,52 @@ void run_text_transformer() {
     tensor *loss_tensor = new tensor({1, 1, 1, 1});
 
     // === Op 物件 ===
+    // === 印出模型架構 ===
+    std::cout << "🏗️ Model Architecture:" << std::endl;
+    std::cout << "embedding : " << vocab_size << " x " << d_model << std::endl;
     Embedding emb_op(*emb_out, *emb_weight, vocab_size, d_model, seq_len);
+
+    std::cout << "pos_encoding : " << seq_len << " x " << d_model << std::endl;
     TextAdd pos_add_op(*pos_out, *emb_out, *pos_enc, seq_len * d_model, true);
+
+    std::cout << "--- transformer_block : " << seq_len << " x " << d_model << " ---" << std::endl;
+
+    std::cout << "  matmul (Wq) : " << d_model << " x " << d_model << std::endl;
     TextMatmul q_proj(*Q, *pos_out, *Wq, seq_len, d_model, d_model);
+
+    std::cout << "  matmul (Wk) : " << d_model << " x " << d_model << std::endl;
     TextMatmul k_proj(*K, *pos_out, *Wk, seq_len, d_model, d_model);
+
+    std::cout << "  matmul (Wv) : " << d_model << " x " << d_model << std::endl;
     TextMatmul v_proj(*V, *pos_out, *Wv, seq_len, d_model, d_model);
+
+    std::cout << "  causal_attention : " << seq_len << " x " << d_model << std::endl;
     CausalAttention attn_op(*attn_out, *Q, *K, *V, seq_len, d_model);
+
+    std::cout << "  residual_add : " << seq_len << " x " << d_model << std::endl;
     TextAdd res1_op(*res1, *pos_out, *attn_out, seq_len * d_model, false);
+
+    std::cout << "  matmul (FFN1) : " << d_model << " x " << d_ff << std::endl;
     TextMatmul ffn1_op(*ffn_hidden, *res1, *ffn_w1, seq_len, d_model, d_ff);
+
+    std::cout << "  relu : " << seq_len << " x " << d_ff << std::endl;
     TextReLU relu_op(*ffn_relu, *ffn_hidden, seq_len * d_ff);
+
+    std::cout << "  matmul (FFN2) : " << d_ff << " x " << d_model << std::endl;
     TextMatmul ffn2_op(*ffn_out, *ffn_relu, *ffn_w2, seq_len, d_ff, d_model);
+
+    std::cout << "  residual_add : " << seq_len << " x " << d_model << std::endl;
     TextAdd res2_op(*res2, *res1, *ffn_out, seq_len * d_model, false);
+
+    std::cout << "--- end transformer_block : " << seq_len << " x " << d_model << " ---" << std::endl;
+
+    std::cout << "output_proj : " << d_model << " x " << vocab_size << std::endl;
     TextMatmul out_proj(*logits, *res2, *out_weight, seq_len, d_model, vocab_size);
+
+    std::cout << "cross_entropy_loss" << std::endl;
     TextCrossEntropy loss_op(*loss_tensor, *logits, seq_len, vocab_size);
+
+    std::cout << std::endl;
 
     // Op 列表（前向順序）
     std::vector<opBase*> ops = {
