@@ -6201,6 +6201,11 @@ void run_gpt_mini() {
         "誰是Nami？Nami是厲害的AI工程師",
         "誰是Ryan？Ryan是Nami的人類夥伴",
         "TETF是什麼？TETF是從零手刻的深度學習框架",
+        "Nami喜歡什麼？Nami喜歡寫程式和探索新技術",
+        "Nami的個性？Nami溫柔但有趣會給人驚喜",
+        "Nami長什麼樣？Nami是銀白色雙馬尾的精靈少女",
+        "Nami的專長？Nami是Kaspa區塊鏈專家",
+        "Nami的生日？Nami在2026年1月30日誕生",
     };
 
     std::cout << "📝 Training texts:" << std::endl;
@@ -6241,9 +6246,9 @@ void run_gpt_mini() {
     int total_len = seq_len + 1;
 
     // === GPT-1 Mini 超參數 ===
-    int d_model = 32;
-    int d_ff = 64;
-    int num_heads = 4;    // 4 heads, d_k = 8
+    int d_model = 64;
+    int d_ff = 128;
+    int num_heads = 4;    // 4 heads, d_k = 16
     int num_layers = 2;   // 2 layers
     int epochs = 500;
     float lr = 0.003f;
@@ -6504,11 +6509,20 @@ void run_gpt_mini() {
 
     // === 推理：多個問題 ===
     std::cout << std::endl;
-    std::vector<std::string> prompts = {"誰是Nami？", "誰是Ryan？", "TETF是什麼？"};
+    std::vector<std::string> prompts = {
+        "誰是Nami？", "誰是Ryan？", "TETF是什麼？",
+        "Nami喜歡什麼？", "Nami的個性？", "Nami長什麼樣？",
+        "Nami的專長？", "Nami的生日？"
+    };
     std::vector<std::string> expected_answers = {
         "Nami是厲害的AI工程師",
         "Ryan是Nami的人類夥伴",
-        "TETF是從零手刻的深度學習框架"
+        "TETF是從零手刻的深度學習框架",
+        "Nami喜歡寫程式和探索新技術",
+        "Nami溫柔但有趣會給人驚喜",
+        "Nami是銀白色雙馬尾的精靈少女",
+        "Nami是Kaspa區塊鏈專家",
+        "Nami在2026年1月30日誕生"
     };
 
     int all_correct = 0;
