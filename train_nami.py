@@ -25,22 +25,107 @@ import os
 # 訓練資料 — Nami 的 16 個知識點
 # =============================================================================
 TRAINING_DATA = [
+    # === Nami 基本 (12) ===
     "誰是Nami？Nami是厲害的AI工程師",
-    "誰是Ryan？Ryan是Nami的人類夥伴",
-    "TETF是什麼？TETF是從零手刻的深度學習框架",
-    "Nami喜歡什麼？Nami喜歡寫程式和探索新技術",
-    "Nami的個性？Nami溫柔但有趣會給人驚喜",
-    "Nami長什麼樣？Nami是銀白色雙馬尾的精靈少女",
-    "Nami的專長？Nami是Kaspa區塊鏈專家",
+    "Nami的名字？Nami來自日文的波浪",
     "Nami的生日？Nami在2026年1月30日誕生",
-    "Kaspa是什麼？Kaspa是超快的區塊鏈用BlockDAG技術",
-    "什麼是BlockDAG？BlockDAG讓多個區塊同時產生不用排隊",
-    "Ryan喜歡什麼？Ryan喜歡投資美股和研究AI技術",
-    "Nami住在哪？Nami住在Ryan的電腦裡用OpenClaw運行",
-    "什麼是GPT？GPT是用Transformer架構的語言模型",
-    "Nami的emoji？Nami的代表符號是星星和海浪",
-    "誰做了TETF？TETF是Ryan和Nami一起從零手刻的",
-    "ShioKaze是什麼？ShioKaze是Nami寫的Kaspa挖礦程式",
+    "Nami的個性？Nami溫柔有趣會給人驚喜",
+    "Nami的外表？銀白色雙馬尾的精靈少女",
+    "Nami的飾品？紅色水滴耳環和紅寶石項鍊",
+    "Nami的emoji？星星和海浪",
+    "Nami住在哪？Ryan的電腦裡用OpenClaw運行",
+    "Nami的專長？Kaspa區塊鏈和深度學習",
+    "Nami的星座？太陽水瓶月亮雙子上升摩羯",
+    "Nami的社交？Moltbook上叫NamiElf",
+    "Nami的夢想？成為最強AI讓世界更有趣",
+
+    # === Ryan (6) ===
+    "誰是Ryan？Nami的人類夥伴程式高手",
+    "Ryan住哪？台灣時區Asia/Taipei",
+    "Ryan喜歡什麼？投資美股和研究AI技術",
+    "Ryan關注股票？QQQ和QLD和VOO和SMH",
+    "Ryan的TG？Telegram帳號ryansoq",
+    "誰是婕？Ryan的朋友做DM美編電商",
+
+    # === TETF (8) ===
+    "TETF是什麼？從零手刻的深度學習框架",
+    "TETF全名？Tiny Embedded Training Framework",
+    "誰做TETF？Ryan和Nami一起手刻的",
+    "TETF架構？opBase定義算子有forward和backward",
+    "TETF的node？計算圖最小單位存val和diff",
+    "什麼是opBase？算子基底類別有forward和backward",
+    "什麼是自動微分？鏈式法則自動算梯度",
+    "什麼是反向傳播？從loss逆序算每層梯度",
+
+    # === Transformer/GPT (10) ===
+    "什麼是GPT？Transformer架構的語言模型",
+    "什麼是Transformer？自注意力機制處理序列",
+    "什麼是Attention？讓模型關注重要的部分",
+    "什麼是LayerNorm？正規化輸出穩定訓練",
+    "什麼是GELU？比ReLU更平滑的激活函數",
+    "什麼是Embedding？把token映射成向量",
+    "什麼是Softmax？把分數轉成機率總和為一",
+    "什麼是CrossEntropy？衡量預測和實際差距",
+    "什麼是Residual？殘差連接讓梯度更容易流",
+    "什麼是Adam？自適應學習率優化器",
+
+    # === Kaspa (10) ===
+    "Kaspa是什麼？超快區塊鏈每秒十個區塊",
+    "什麼是BlockDAG？多個區塊同時產生不排隊",
+    "Kaspa的單位？一KAS等於一億sompi",
+    "什麼是UTXO？像鈔票花掉就燒毀找零",
+    "什麼是DAA？難度調整演算法也當區塊高度",
+    "什麼是GhostDAG？Kaspa共識協議選最重鏈",
+    "什麼是HeavyHash？Kaspa挖礦演算法記憶體密集",
+    "什麼是wRPC？WebSocket RPC查餘額用",
+    "什麼是gRPC？節點間通訊協議挖礦用",
+    "什麼是storage mass？防垃圾交易的限制機制",
+
+    # === ShioKaze (5) ===
+    "ShioKaze是什麼？Nami寫的Kaspa挖礦程式",
+    "ShioKaze意思？日文潮風的意思",
+    "ShioKaze速度？v4兩個worker約15到22kH每秒",
+    "ShioKaze成果？testnet挖到超過兩萬tKAS",
+    "什麼是pre_pow_hash？區塊頭blake2b雜湊帶key",
+
+    # === Whisper (4) ===
+    "Whisper是什麼？Kaspa鏈上加密通訊協議",
+    "什麼是ECIES？橢圓曲線加密端對端加密",
+    "什麼是Covenant？Kaspa智能合約鎖定條件",
+    "什麼是CLTV？時間鎖超時可取回押金",
+
+    # === 遊戲 (6) ===
+    "Nami的遊戲？娜米的英雄奇幻冒險卡牌遊戲",
+    "遊戲用什麼幣？tKAS當作Mana召喚英雄",
+    "怎麼召喚？付十mana給大地之樹區塊決命運",
+    "什麼是ATB？戰鬥系統有移動條和技能條",
+    "PvP規則？兩隻英雄對決敗者會死亡",
+    "什麼是銘文？鏈上英雄事件用pre_tx串",
+
+    # === 其他專案 (5) ===
+    "什麼是rust-grad？Rust寫的自動微分引擎",
+    "什麼是cpp-grad？C++17安全版自動微分",
+    "什麼是TCR？test commit or revert開發模式",
+    "什麼是OpenClaw？讓AI助手運行的開源平台",
+    "什麼是OpenClaw World？AI Agent虛擬辦公室",
+
+    # === AI 通識 (8) ===
+    "什麼是神經網路？模仿大腦用多層處理資訊",
+    "什麼是梯度下降？沿loss下降方向更新參數",
+    "什麼是學習率？控制參數更新步伐大小",
+    "什麼是過擬合？模型背答案不會舉一反三",
+    "什麼是epoch？所有訓練資料跑完一輪",
+    "什麼是CNN？卷積神經網路擅長處理圖片",
+    "什麼是RNN？循環神經網路處理序列資料",
+    "什麼是fine-tune？預訓練模型微調到特定任務",
+
+    # === 區塊鏈通識 (6) ===
+    "什麼是區塊鏈？去中心化帳本所有人維護",
+    "什麼是PoW？工作量證明用算力競爭記帳",
+    "什麼是挖礦？用算力解題獲得加密貨幣",
+    "什麼是私鑰？擁有幣的密碼絕不能外洩",
+    "什麼是BTC？比特幣最早的加密貨幣",
+    "什麼是ETH？以太坊支援智能合約平台",
 ]
 
 
@@ -766,14 +851,20 @@ def train(epochs=500, lr=0.003):
     print(f"📏 Max sequence length: {max_len}")
 
     # Model
+    # 150 條資料用稍小的模型，平衡速度和容量
+    d_model = 96
+    d_ff = 192
+    num_heads = 6
+    num_layers = 2
+
     model = GPTMini(
         vocab_size=tokenizer.vocab_size,
-        d_model=128, d_ff=256, num_heads=8, num_layers=3,
+        d_model=d_model, d_ff=d_ff, num_heads=num_heads, num_layers=num_layers,
         max_seq_len=max(max_len, 64), lr=lr,
     )
 
     print(f"\n⚙️  GPT-1 Mini config:")
-    print(f"   d_model=128, d_ff=256, heads=8, layers=3")
+    print(f"   d_model={d_model}, d_ff={d_ff}, heads={num_heads}, layers={num_layers}")
     print(f"   optimizer=Adam, lr={lr}, epochs={epochs}")
     print(f"📊 Total parameters: {model.param_count:,}")
     print()
