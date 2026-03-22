@@ -3626,6 +3626,150 @@ public:
     void save() {}
 };
 
+// ============================================================================
+// [TEXT] TextLayerNorm — 序列級層正規化
+//
+// 對序列中每個位置（row）獨立做 LayerNorm：
+//   output[i,:] = γ × (x[i,:] - μ_i) / √(σ²_i + ε) + β
+//
+// γ, β 是長度 d_model 的可學習參數（所有位置共享）
+// ============================================================================
+class TextLayerNorm : public opBase
+{
+public:
+    tensor *output;
+    tensor *input;
+    tensor *gamma;     // [d_model] — scale
+    tensor *beta;      // [d_model] — shift
+    int seq_len, d_model;
+    float eps;
+    std::vector<float> mean_cache;    // [seq_len]
+    std::vector<float> var_cache;     // [seq_len]
+    std::vector<float> norm_cache;    // [seq_len * d_model]
+
+    TextLayerNorm(tensor &out, tensor &in, tensor &g, tensor &b, int seq, int dim, float epsilon = 1e-5f)
+    {
+        output = &out;
+        input = &in;
+        gamma = &g;
+        beta = &b;
+        seq_len = seq;
+        d_model = dim;
+        eps = epsilon;
+        mean_cache.resize(seq_len);
+        var_cache.resize(seq_len);
+        norm_cache.resize(seq_len * d_model);
+
+        // γ 初始化為 1，β 初始化為 0
+        for (int i = 0; i < d_model; i++) {
+            gamma->data[i].val = 1.0f;
+            beta->data[i].val = 0.0f;
+        }
+
+        nnCode.append(out.name + " = layer_norm(" + in.name + ");\n");
+    }
+
+    void forward()
+    {
+        for (int i = 0; i < seq_len; i++) {
+            // 計算 mean
+            float mean = 0.0f;
+            for (int j = 0; j < d_model; j++)
+                mean += input->data[i * d_model + j].val;
+            mean /= d_model;
+            mean_cache[i] = mean;
+
+            // 計算 variance
+            float var = 0.0f;
+            for (int j = 0; j < d_model; j++) {
+                float diff = input->data[i * d_model + j].val - mean;
+                var += diff * diff;
+            }
+            var /= d_model;
+            var_cache[i] = var;
+
+            // normalize + scale + shift
+            float inv_std = 1.0f / sqrt(var + eps);
+            for (int j = 0; j < d_model; j++) {
+                float normalized = (input->data[i * d_model + j].val - mean) * inv_std;
+                norm_cache[i * d_model + j] = normalized;
+                output->data[i * d_model + j].val = normalized * gamma->data[j].val + beta->data[j].val;
+            }
+        }
+    }
+
+    void backward()
+    {
+        for (int i = 0; i < seq_len; i++) {
+            float mean = mean_cache[i];
+            float var = var_cache[i];
+            float inv_std = 1.0f / sqrt(var + eps);
+
+            // ∂L/∂γ, ∂L/∂β（所有位置累加）
+            for (int j = 0; j < d_model; j++) {
+                gamma->data[j].diff += norm_cache[i * d_model + j] * output->data[i * d_model + j].diff;
+                beta->data[j].diff += output->data[i * d_model + j].diff;
+            }
+
+            // ∂L/∂norm
+            std::vector<float> d_norm(d_model);
+            for (int j = 0; j < d_model; j++)
+                d_norm[j] = gamma->data[j].val * output->data[i * d_model + j].diff;
+
+            // ∂L/∂var
+            float d_var = 0.0f;
+            for (int j = 0; j < d_model; j++)
+                d_var += d_norm[j] * (input->data[i * d_model + j].val - mean);
+            d_var *= -0.5f * pow(var + eps, -1.5f);
+
+            // ∂L/∂mean
+            float d_mean = 0.0f;
+            for (int j = 0; j < d_model; j++)
+                d_mean += d_norm[j];
+            d_mean *= -inv_std;
+            // d_var 對 mean 的貢獻（Σ(x-μ) = 0，所以這項為 0）
+
+            // ∂L/∂x
+            for (int j = 0; j < d_model; j++) {
+                input->data[i * d_model + j].diff +=
+                    d_norm[j] * inv_std +
+                    d_var * (2.0f / d_model) * (input->data[i * d_model + j].val - mean) +
+                    d_mean / d_model;
+            }
+        }
+    }
+
+    void update()
+    {
+        // SGD 更新 γ, β
+        for (int j = 0; j < d_model; j++) {
+            gamma->data[j].val -= cfg.lr * gamma->data[j].diff;
+            gamma->data[j].diff = 0; gamma->data[j].diffs.clear();
+            beta->data[j].val -= cfg.lr * beta->data[j].diff;
+            beta->data[j].diff = 0; beta->data[j].diffs.clear();
+        }
+        // 清理 input/output
+        for (int i = 0; i < seq_len * d_model; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        for (int j = 0; j < d_model; j++) {
+            gamma->data[j].diff = 0; gamma->data[j].diffs.clear();
+            beta->data[j].diff = 0; beta->data[j].diffs.clear();
+        }
+        for (int i = 0; i < seq_len * d_model; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {

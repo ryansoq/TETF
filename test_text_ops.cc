@@ -617,6 +617,103 @@ void test_end_to_end() {
 }
 
 // ============================================================================
+// Test 9: TextLayerNorm — forward 正規化 + backward 數值梯度
+// ============================================================================
+void test_text_layer_norm() {
+    std::cout << "\n═══ Test 9: TextLayerNorm ═══" << std::endl;
+
+    int seq_len = 2, d_model = 4;
+
+    tensor *input = new tensor({1, 1, seq_len, d_model});
+    tensor *output = new tensor({1, 1, seq_len, d_model});
+    tensor *gamma = new tensor({1, 1, 1, d_model});
+    tensor *beta = new tensor({1, 1, 1, d_model});
+
+    // 設定已知輸入
+    // row 0: [1, 2, 3, 4]  mean=2.5, var=1.25
+    // row 1: [5, 3, 7, 1]  mean=4.0, var=5.0
+    float in_vals[] = {1, 2, 3, 4, 5, 3, 7, 1};
+    for (int i = 0; i < seq_len * d_model; i++)
+        input->data[i].val = in_vals[i];
+    zero_diffs(input); zero_diffs(output); zero_diffs(gamma); zero_diffs(beta);
+
+    TextLayerNorm ln(*output, *input, *gamma, *beta, seq_len, d_model);
+    ln.forward();
+
+    // row 0: (x - 2.5) / sqrt(1.25 + 1e-5)
+    // normalized[0] = (1-2.5)/1.118 ≈ -1.342
+    // normalized[3] = (4-2.5)/1.118 ≈ 1.342
+    CHECK("forward: row 0 normalized (mean-centered)",
+          output->data[0].val < -1.0f && output->data[3].val > 1.0f);
+
+    // row 1: [5,3,7,1] mean=4.0, var=5.0
+    // normalized[4] = (5-4)/sqrt(5+ε) ≈ 0.447
+    // normalized[7] = (1-4)/sqrt(5+ε) ≈ -1.342
+    CHECK("forward: row 1 normalized correctly",
+          output->data[4].val > 0.3f && output->data[7].val < -1.0f);
+
+    // 正規化後每 row 的 mean ≈ 0（beta=0 時）
+    float row0_mean = 0;
+    for (int j = 0; j < d_model; j++) row0_mean += output->data[j].val;
+    row0_mean /= d_model;
+    CHECK("forward: normalized row mean ≈ 0",
+          fabs(row0_mean) < 1e-4f);
+
+    // 數值梯度檢查
+    auto compute_loss = [&]() -> float {
+        ln.forward();
+        float loss = 0;
+        for (int i = 0; i < seq_len * d_model; i++) loss += output->data[i].val;
+        return loss;
+    };
+
+    // 解析梯度
+    zero_diffs(input); zero_diffs(output); zero_diffs(gamma); zero_diffs(beta);
+    for (int i = 0; i < seq_len * d_model; i++) output->data[i].diff = 1.0f;
+    ln.backward();
+
+    // 存下解析梯度
+    std::vector<float> in_analytic(seq_len * d_model);
+    std::vector<float> g_analytic(d_model);
+    for (int i = 0; i < seq_len * d_model; i++) in_analytic[i] = input->data[i].diff;
+    for (int j = 0; j < d_model; j++) g_analytic[j] = gamma->data[j].diff;
+
+    // input 梯度
+    bool input_ok = true;
+    for (int i = 0; i < seq_len * d_model; i++) {
+        float ng = numerical_grad(input->data[i], compute_loss);
+        if (!check_grad(in_analytic[i], ng)) {
+            std::cout << "  ⚠️ input[" << i << "] analytic=" << in_analytic[i]
+                      << " numeric=" << ng << std::endl;
+            input_ok = false;
+        }
+    }
+    CHECK("backward: input gradients ≈ numerical", input_ok);
+
+    // gamma 梯度
+    bool gamma_ok = true;
+    for (int j = 0; j < d_model; j++) {
+        float ng = numerical_grad(gamma->data[j], compute_loss);
+        if (!check_grad(g_analytic[j], ng)) {
+            std::cout << "  ⚠️ gamma[" << j << "] analytic=" << g_analytic[j]
+                      << " numeric=" << ng << std::endl;
+            gamma_ok = false;
+        }
+    }
+    CHECK("backward: gamma gradients ≈ numerical", gamma_ok);
+
+    // beta 梯度 = sum of upstream grads per position
+    // 我們設 output.diff = 1 for all，所以 beta.diff = seq_len = 2
+    zero_diffs(input); zero_diffs(output); zero_diffs(gamma); zero_diffs(beta);
+    for (int i = 0; i < seq_len * d_model; i++) output->data[i].diff = 1.0f;
+    ln.backward();
+    CHECK("backward: beta grads = seq_len (sum over positions)",
+          fabs(beta->data[0].diff - (float)seq_len) < 1e-4f);
+
+    delete input; delete output; delete gamma; delete beta;
+}
+
+// ============================================================================
 // main
 // ============================================================================
 int main() {
@@ -632,6 +729,7 @@ int main() {
     test_causal_attention();
     test_text_cross_entropy();
     test_sgd_update();
+    test_text_layer_norm();
     test_end_to_end();
 
     std::cout << "\n═══════════════════════════════════════════" << std::endl;
