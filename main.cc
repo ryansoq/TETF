@@ -3835,6 +3835,235 @@ public:
     void save() {}
 };
 
+// ============================================================================
+// [TEXT] TextMultiHeadAttention — 多頭因果注意力
+//
+// 把 Q, K, V 切成 num_heads 份，各自做 CausalAttention，再拼接
+//   head_i = CausalAttention(Q_i, K_i, V_i)
+//   output = Concat(head_1, ..., head_h) × W_o
+//
+// 參數：Wq, Wk, Wv [d_model, d_model], Wo [d_model, d_model]
+// ============================================================================
+class TextMultiHeadAttention : public opBase
+{
+public:
+    tensor *output;
+    tensor *input;           // [seq_len, d_model]
+    tensor *Wq, *Wk, *Wv, *Wo;  // 各 [d_model, d_model]
+    int seq_len, d_model, num_heads, d_k;
+
+    // 中間存儲
+    std::vector<float> Q, K, V;              // [seq_len, d_model]
+    std::vector<float> attn_out;             // [seq_len, d_model] 拼接結果
+    std::vector<std::vector<float>> attn_weights;  // [num_heads][seq_len * seq_len]
+
+    // backward 用的中間梯度
+    std::vector<float> dQ, dK, dV;
+    std::vector<float> d_attn_out;
+
+    TextMultiHeadAttention(tensor &out, tensor &in,
+                           tensor &wq, tensor &wk, tensor &wv, tensor &wo,
+                           int seq, int dim, int heads)
+    {
+        output = &out;
+        input = &in;
+        Wq = &wq; Wk = &wk; Wv = &wv; Wo = &wo;
+        seq_len = seq;
+        d_model = dim;
+        num_heads = heads;
+        d_k = d_model / num_heads;
+
+        int total = seq_len * d_model;
+        Q.resize(total); K.resize(total); V.resize(total);
+        attn_out.resize(total);
+        dQ.resize(total); dK.resize(total); dV.resize(total);
+        d_attn_out.resize(total);
+        attn_weights.resize(num_heads);
+        for (int h = 0; h < num_heads; h++)
+            attn_weights[h].resize(seq_len * seq_len);
+
+        nnCode.append(out.name + " = multi_head_causal_attention(" + in.name + ");\n");
+    }
+
+    void forward()
+    {
+        int total = seq_len * d_model;
+
+        // Q = input × Wq,  K = input × Wk,  V = input × Wv
+        for (int i = 0; i < seq_len; i++)
+            for (int j = 0; j < d_model; j++) {
+                float sq = 0, sk = 0, sv = 0;
+                for (int k = 0; k < d_model; k++) {
+                    float inp = input->data[i * d_model + k].val;
+                    sq += inp * Wq->data[k * d_model + j].val;
+                    sk += inp * Wk->data[k * d_model + j].val;
+                    sv += inp * Wv->data[k * d_model + j].val;
+                }
+                Q[i * d_model + j] = sq;
+                K[i * d_model + j] = sk;
+                V[i * d_model + j] = sv;
+            }
+
+        // 各 head 獨立做 causal attention
+        for (int h = 0; h < num_heads; h++) {
+            int offset = h * d_k;
+            float scale = 1.0f / sqrt((float)d_k);
+
+            for (int i = 0; i < seq_len; i++) {
+                // QKᵀ + causal mask
+                std::vector<float> scores(seq_len);
+                for (int j = 0; j < seq_len; j++) {
+                    float s = 0;
+                    for (int k = 0; k < d_k; k++)
+                        s += Q[i * d_model + offset + k] * K[j * d_model + offset + k];
+                    scores[j] = (j > i) ? -1e9f : s * scale;
+                }
+
+                // Softmax
+                float max_val = *std::max_element(scores.begin(), scores.end());
+                float sum_exp = 0;
+                for (int j = 0; j < seq_len; j++) {
+                    scores[j] = exp(scores[j] - max_val);
+                    sum_exp += scores[j];
+                }
+                for (int j = 0; j < seq_len; j++) {
+                    attn_weights[h][i * seq_len + j] = scores[j] / sum_exp;
+                }
+
+                // Attention × V
+                for (int k = 0; k < d_k; k++) {
+                    float val = 0;
+                    for (int j = 0; j < seq_len; j++)
+                        val += attn_weights[h][i * seq_len + j] * V[j * d_model + offset + k];
+                    attn_out[i * d_model + offset + k] = val;
+                }
+            }
+        }
+
+        // output = attn_out × Wo
+        for (int i = 0; i < seq_len; i++)
+            for (int j = 0; j < d_model; j++) {
+                float s = 0;
+                for (int k = 0; k < d_model; k++)
+                    s += attn_out[i * d_model + k] * Wo->data[k * d_model + j].val;
+                output->data[i * d_model + j].val = s;
+            }
+    }
+
+    void backward()
+    {
+        int total = seq_len * d_model;
+        std::fill(d_attn_out.begin(), d_attn_out.end(), 0);
+        std::fill(dQ.begin(), dQ.end(), 0);
+        std::fill(dK.begin(), dK.end(), 0);
+        std::fill(dV.begin(), dV.end(), 0);
+
+        // ∂L/∂Wo, ∂L/∂attn_out
+        for (int i = 0; i < seq_len; i++)
+            for (int j = 0; j < d_model; j++) {
+                float dout = output->data[i * d_model + j].diff;
+                for (int k = 0; k < d_model; k++) {
+                    Wo->data[k * d_model + j].diff += attn_out[i * d_model + k] * dout;
+                    d_attn_out[i * d_model + k] += Wo->data[k * d_model + j].val * dout;
+                }
+            }
+
+        // 各 head 反向
+        for (int h = 0; h < num_heads; h++) {
+            int offset = h * d_k;
+            float scale = 1.0f / sqrt((float)d_k);
+
+            for (int i = 0; i < seq_len; i++) {
+                // ∂L/∂V
+                for (int k = 0; k < d_k; k++)
+                    for (int j = 0; j < seq_len; j++)
+                        dV[j * d_model + offset + k] +=
+                            attn_weights[h][i * seq_len + j] * d_attn_out[i * d_model + offset + k];
+
+                // ∂L/∂attn_weights
+                std::vector<float> d_attn(seq_len, 0);
+                for (int j = 0; j < seq_len; j++)
+                    for (int k = 0; k < d_k; k++)
+                        d_attn[j] += V[j * d_model + offset + k] * d_attn_out[i * d_model + offset + k];
+
+                // ∂L/∂scores (through softmax)
+                float sum = 0;
+                for (int j = 0; j < seq_len; j++)
+                    sum += d_attn[j] * attn_weights[h][i * seq_len + j];
+                std::vector<float> d_scores(seq_len);
+                for (int j = 0; j < seq_len; j++)
+                    d_scores[j] = attn_weights[h][i * seq_len + j] * (d_attn[j] - sum);
+
+                // ∂L/∂Q, ∂L/∂K
+                for (int j = 0; j < seq_len; j++) {
+                    if (j > i) continue;
+                    float g = d_scores[j] * scale;
+                    for (int k = 0; k < d_k; k++) {
+                        dQ[i * d_model + offset + k] += g * K[j * d_model + offset + k];
+                        dK[j * d_model + offset + k] += g * Q[i * d_model + offset + k];
+                    }
+                }
+            }
+        }
+
+        // ∂L/∂Wq, ∂L/∂Wk, ∂L/∂Wv, ∂L/∂input
+        for (int i = 0; i < seq_len; i++)
+            for (int k = 0; k < d_model; k++) {
+                float inp = input->data[i * d_model + k].val;
+                for (int j = 0; j < d_model; j++) {
+                    Wq->data[k * d_model + j].diff += inp * dQ[i * d_model + j];
+                    Wk->data[k * d_model + j].diff += inp * dK[i * d_model + j];
+                    Wv->data[k * d_model + j].diff += inp * dV[i * d_model + j];
+                    input->data[i * d_model + k].diff +=
+                        Wq->data[k * d_model + j].val * dQ[i * d_model + j] +
+                        Wk->data[k * d_model + j].val * dK[i * d_model + j] +
+                        Wv->data[k * d_model + j].val * dV[i * d_model + j];
+                }
+            }
+    }
+
+    void update()
+    {
+        auto sgd_update = [](tensor *t, int size) {
+            for (int i = 0; i < size; i++) {
+                t->data[i].val -= cfg.lr * t->data[i].diff;
+                t->data[i].diff = 0; t->data[i].diffs.clear();
+            }
+        };
+        int wsize = d_model * d_model;
+        sgd_update(Wq, wsize);
+        sgd_update(Wk, wsize);
+        sgd_update(Wv, wsize);
+        sgd_update(Wo, wsize);
+
+        int total = seq_len * d_model;
+        for (int i = 0; i < total; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void clear()
+    {
+        int wsize = d_model * d_model;
+        auto clear_t = [](tensor *t, int size) {
+            for (int i = 0; i < size; i++) {
+                t->data[i].diff = 0; t->data[i].diffs.clear();
+            }
+        };
+        clear_t(Wq, wsize); clear_t(Wk, wsize);
+        clear_t(Wv, wsize); clear_t(Wo, wsize);
+
+        int total = seq_len * d_model;
+        for (int i = 0; i < total; i++) {
+            input->data[i].diff = 0; input->data[i].diffs.clear();
+            output->data[i].diff = 0; output->data[i].diffs.clear();
+        }
+    }
+
+    void save() {}
+};
+
 // [TRANSFORMER] ScaledDotProductAttention operation
 class ScaledDotProductAttention : public opBase
 {

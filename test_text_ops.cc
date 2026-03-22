@@ -686,10 +686,126 @@ void test_text_gelu() {
 }
 
 // ============================================================================
-// Test 10: TextLayerNorm — forward 正規化 + backward 數值梯度
+// Test 10: TextMultiHeadAttention — 多頭因果注意力 + 數值梯度
+// ============================================================================
+void test_text_multi_head_attention() {
+    std::cout << "\n═══ Test 10: TextMultiHeadAttention ═══" << std::endl;
+
+    int seq_len = 3, d_model = 4, num_heads = 2;
+    // d_k = d_model / num_heads = 2
+
+    tensor *input = new tensor({1, 1, seq_len, d_model});
+    tensor *output = new tensor({1, 1, seq_len, d_model});
+    tensor *Wq = new tensor({1, 1, d_model, d_model});
+    tensor *Wk = new tensor({1, 1, d_model, d_model});
+    tensor *Wv = new tensor({1, 1, d_model, d_model});
+    tensor *Wo = new tensor({1, 1, d_model, d_model});
+
+    srand(456);
+    auto init = [](tensor *t) {
+        for (size_t i = 0; i < t->data.size(); i++) {
+            t->data[i].val = ((float)rand() / RAND_MAX - 0.5f) * 0.5f;
+            t->data[i].diff = 0; t->data[i].diffs.clear();
+        }
+    };
+    init(input); init(Wq); init(Wk); init(Wv); init(Wo);
+    zero_diffs(output);
+
+    TextMultiHeadAttention mha(*output, *input, *Wq, *Wk, *Wv, *Wo, seq_len, d_model, num_heads);
+    mha.forward();
+
+    // 基本檢查：output 不為 NaN
+    bool finite = true;
+    for (int i = 0; i < seq_len * d_model; i++)
+        if (!std::isfinite(output->data[i].val)) finite = false;
+    CHECK("forward: output is finite (no NaN)", finite);
+
+    // 因果遮罩：head 0, pos 0 → 只看自己
+    CHECK("forward: head 0 pos 0 self-attn ≈ 1.0",
+          fabs(mha.attn_weights[0][0 * seq_len + 0] - 1.0f) < 1e-4f);
+    CHECK("forward: head 0 pos 0 → pos 1,2 masked",
+          mha.attn_weights[0][0 * seq_len + 1] < 1e-5f);
+
+    // head 1 也有因果遮罩
+    CHECK("forward: head 1 pos 0 self-attn ≈ 1.0",
+          fabs(mha.attn_weights[1][0 * seq_len + 0] - 1.0f) < 1e-4f);
+
+    // 數值梯度（loss = sum(output)）
+    auto compute_loss = [&]() -> float {
+        mha.forward();
+        float loss = 0;
+        for (int i = 0; i < seq_len * d_model; i++) loss += output->data[i].val;
+        return loss;
+    };
+
+    // input 梯度
+    zero_diffs(input); zero_diffs(output);
+    zero_diffs(Wq); zero_diffs(Wk); zero_diffs(Wv); zero_diffs(Wo);
+    for (int i = 0; i < seq_len * d_model; i++) output->data[i].diff = 1.0f;
+    mha.backward();
+
+    std::vector<float> in_analytic(seq_len * d_model);
+    for (int i = 0; i < seq_len * d_model; i++) in_analytic[i] = input->data[i].diff;
+
+    bool input_ok = true;
+    for (int i = 0; i < seq_len * d_model; i++) {
+        float ng = numerical_grad(input->data[i], compute_loss);
+        if (!check_grad(in_analytic[i], ng)) {
+            std::cout << "  ⚠️ input[" << i << "] analytic=" << in_analytic[i]
+                      << " numeric=" << ng << std::endl;
+            input_ok = false;
+        }
+    }
+    CHECK("backward: input gradients ≈ numerical", input_ok);
+
+    // Wq 梯度（抽樣檢查前幾個）
+    zero_diffs(input); zero_diffs(output);
+    zero_diffs(Wq); zero_diffs(Wk); zero_diffs(Wv); zero_diffs(Wo);
+    for (int i = 0; i < seq_len * d_model; i++) output->data[i].diff = 1.0f;
+    mha.backward();
+
+    std::vector<float> wq_analytic(d_model * d_model);
+    for (int i = 0; i < d_model * d_model; i++) wq_analytic[i] = Wq->data[i].diff;
+
+    bool wq_ok = true;
+    for (int i = 0; i < d_model * d_model; i++) {
+        float ng = numerical_grad(Wq->data[i], compute_loss);
+        if (!check_grad(wq_analytic[i], ng)) {
+            std::cout << "  ⚠️ Wq[" << i << "] analytic=" << wq_analytic[i]
+                      << " numeric=" << ng << std::endl;
+            wq_ok = false;
+        }
+    }
+    CHECK("backward: Wq gradients ≈ numerical", wq_ok);
+
+    // Wo 梯度
+    zero_diffs(input); zero_diffs(output);
+    zero_diffs(Wq); zero_diffs(Wk); zero_diffs(Wv); zero_diffs(Wo);
+    for (int i = 0; i < seq_len * d_model; i++) output->data[i].diff = 1.0f;
+    mha.backward();
+
+    std::vector<float> wo_analytic(d_model * d_model);
+    for (int i = 0; i < d_model * d_model; i++) wo_analytic[i] = Wo->data[i].diff;
+
+    bool wo_ok = true;
+    for (int i = 0; i < d_model * d_model; i++) {
+        float ng = numerical_grad(Wo->data[i], compute_loss);
+        if (!check_grad(wo_analytic[i], ng)) {
+            std::cout << "  ⚠️ Wo[" << i << "] analytic=" << wo_analytic[i]
+                      << " numeric=" << ng << std::endl;
+            wo_ok = false;
+        }
+    }
+    CHECK("backward: Wo gradients ≈ numerical", wo_ok);
+
+    delete input; delete output; delete Wq; delete Wk; delete Wv; delete Wo;
+}
+
+// ============================================================================
+// Test 11: TextLayerNorm — forward 正規化 + backward 數值梯度
 // ============================================================================
 void test_text_layer_norm() {
-    std::cout << "\n═══ Test 10: TextLayerNorm ═══" << std::endl;
+    std::cout << "\n═══ Test 11: TextLayerNorm ═══" << std::endl;
 
     int seq_len = 2, d_model = 4;
 
@@ -800,6 +916,7 @@ int main() {
     test_sgd_update();
     test_text_layer_norm();
     test_text_gelu();
+    test_text_multi_head_attention();
     test_end_to_end();
 
     std::cout << "\n═══════════════════════════════════════════" << std::endl;
