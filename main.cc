@@ -6196,33 +6196,56 @@ void run_gpt_mini() {
     std::cout << std::endl;
 
     // === 訓練文本 ===
-    std::string text = "誰是Nami？Nami是厲害的AI工程師";
-    std::cout << "📝 Training text: " << text << std::endl;
+    // 多句訓練文本，用 | 分隔
+    std::vector<std::string> texts = {
+        "誰是Nami？Nami是厲害的AI工程師",
+        "誰是Ryan？Ryan是Nami的人類夥伴",
+        "TETF是什麼？TETF是從零手刻的深度學習框架",
+    };
 
-    // === Tokenizer ===
-    std::vector<std::string> all_chars = utf8_chars(text);
+    std::cout << "📝 Training texts:" << std::endl;
+    for (auto &t : texts)
+        std::cout << "   " << t << std::endl;
+
+    // === Tokenizer（從所有文本建詞表）===
     std::vector<std::string> vocab;
-    for (auto &ch : all_chars) {
-        bool found = false;
-        for (auto &v : vocab) if (v == ch) { found = true; break; }
-        if (!found) vocab.push_back(ch);
+    for (auto &t : texts) {
+        auto chars = utf8_chars(t);
+        for (auto &ch : chars) {
+            bool found = false;
+            for (auto &v : vocab) if (v == ch) { found = true; break; }
+            if (!found) vocab.push_back(ch);
+        }
     }
     int vocab_size = vocab.size();
-    int total_len = all_chars.size();
-    int seq_len = total_len - 1;
 
-    // token ID 化
-    std::vector<int> token_ids;
-    for (auto &ch : all_chars)
-        for (int j = 0; j < vocab_size; j++)
-            if (vocab[j] == ch) { token_ids.push_back(j); break; }
+    // 把每句文本轉成 token IDs
+    auto tokenize = [&](const std::string &s) -> std::vector<int> {
+        auto chars = utf8_chars(s);
+        std::vector<int> ids;
+        for (auto &ch : chars)
+            for (int j = 0; j < vocab_size; j++)
+                if (vocab[j] == ch) { ids.push_back(j); break; }
+        return ids;
+    };
+
+    // 找最長句子決定 seq_len
+    int seq_len = 0;
+    std::vector<std::vector<int>> all_token_ids;
+    for (auto &t : texts) {
+        auto ids = tokenize(t);
+        all_token_ids.push_back(ids);
+        int len = ids.size() - 1;
+        if (len > seq_len) seq_len = len;
+    }
+    int total_len = seq_len + 1;
 
     // === GPT-1 Mini 超參數 ===
     int d_model = 32;
     int d_ff = 64;
     int num_heads = 4;    // 4 heads, d_k = 8
     int num_layers = 2;   // 2 layers
-    int epochs = 300;
+    int epochs = 500;
     float lr = 0.003f;
 
     std::cout << "📊 Vocab: " << vocab_size << " tokens" << std::endl;
@@ -6410,109 +6433,134 @@ void run_gpt_mini() {
     std::cout << "📊 Total parameters: " << param_count << std::endl;
     std::cout << std::endl;
 
-    // 設定 input/target
-    std::vector<int> input_ids(token_ids.begin(), token_ids.begin() + seq_len);
-    std::vector<int> target_ids(token_ids.begin() + 1, token_ids.begin() + 1 + seq_len);
-    emb_op.set_indices(input_ids);
-    loss_op.set_targets(target_ids);
-
-    // === 訓練 ===
+    // === 訓練（多句輪流）===
     std::cout << "🏋️ Training with Adam optimizer..." << std::endl;
     int adam_t = 0;
+    int num_texts = texts.size();
 
     for (int epoch = 0; epoch < epochs; epoch++) {
-        // Forward
-        for (auto op : ops) op->forward();
+        float total_loss = 0;
+        int total_correct = 0;
+        int total_tokens = 0;
 
-        float loss = loss_tensor->data[0].val;
+        for (int t = 0; t < num_texts; t++) {
+            auto &tids = all_token_ids[t];
+            int tlen = tids.size() - 1;
 
-        // Accuracy
-        int correct = 0;
-        for (int i = 0; i < seq_len; i++) {
-            float max_val = -1e9f;
-            int max_idx = 0;
-            for (int j = 0; j < vocab_size; j++) {
-                float v = logits->data[i * vocab_size + j].val;
-                if (v > max_val) { max_val = v; max_idx = j; }
+            // 設定 input/target（短句 pad 0）
+            std::vector<int> input_ids(seq_len, 0);
+            std::vector<int> target_ids(seq_len, 0);
+            for (int i = 0; i < tlen; i++) {
+                input_ids[i] = tids[i];
+                target_ids[i] = tids[i + 1];
             }
-            if (max_idx == target_ids[i]) correct++;
+            emb_op.set_indices(input_ids);
+            loss_op.set_targets(target_ids);
+
+            // Forward
+            for (auto op : ops) op->forward();
+            total_loss += loss_tensor->data[0].val;
+
+            // Accuracy（只算實際 token，不算 pad）
+            for (int i = 0; i < tlen; i++) {
+                float max_val = -1e9f;
+                int max_idx = 0;
+                for (int j = 0; j < vocab_size; j++) {
+                    float v = logits->data[i * vocab_size + j].val;
+                    if (v > max_val) { max_val = v; max_idx = j; }
+                }
+                if (max_idx == target_ids[i]) total_correct++;
+                total_tokens++;
+            }
+
+            // Backward
+            for (int i = ops.size() - 1; i >= 0; i--) ops[i]->backward();
+
+            // Adam update
+            adam_t++;
+            for (auto &ap : adam_params)
+                ap.second.step(ap.first, ap.first->data.size(), adam_t, lr);
+
+            // Clear
+            for (auto op : ops) op->clear();
         }
-        float acc = (float)correct / seq_len * 100;
+
+        float avg_loss = total_loss / num_texts;
+        float acc = (float)total_correct / total_tokens * 100;
 
         if (epoch % 50 == 0 || acc >= 100.0f) {
             std::cout << "  Epoch " << std::setw(4) << epoch
-                      << " | loss=" << std::fixed << std::setprecision(4) << loss
-                      << " | acc=" << correct << "/" << seq_len
+                      << " | loss=" << std::fixed << std::setprecision(4) << avg_loss
+                      << " | acc=" << total_correct << "/" << total_tokens
                       << " (" << std::setprecision(1) << acc << "%)" << std::endl;
         }
 
-        if (acc >= 100.0f && epoch > 5) {
+        if (acc >= 100.0f && epoch > 10) {
             std::cout << std::endl;
             std::cout << "🎉 Converged at epoch " << epoch << "!" << std::endl;
             break;
         }
-
-        // Backward
-        for (int i = ops.size() - 1; i >= 0; i--) ops[i]->backward();
-
-        // Adam update
-        adam_t++;
-        for (auto &ap : adam_params)
-            ap.second.step(ap.first, ap.first->data.size(), adam_t, lr);
-
-        // Clear intermediate diffs
-        for (auto op : ops) op->clear();
     }
 
-    // === 推理 ===
+    // === 推理：多個問題 ===
     std::cout << std::endl;
-    std::string prompt_str = "誰是Nami？";
-    std::vector<std::string> prompt_chars = utf8_chars(prompt_str);
-    std::vector<int> prompt_ids;
-    for (auto &ch : prompt_chars)
-        for (int j = 0; j < vocab_size; j++)
-            if (vocab[j] == ch) { prompt_ids.push_back(j); break; }
+    std::vector<std::string> prompts = {"誰是Nami？", "誰是Ryan？", "TETF是什麼？"};
+    std::vector<std::string> expected_answers = {
+        "Nami是厲害的AI工程師",
+        "Ryan是Nami的人類夥伴",
+        "TETF是從零手刻的深度學習框架"
+    };
 
-    std::cout << "🔮 Input: " << prompt_str << std::endl;
+    int all_correct = 0;
+    for (int p = 0; p < (int)prompts.size(); p++) {
+        auto prompt_ids = tokenize(prompts[p]);
+        std::cout << "🔮 Q: " << prompts[p] << std::endl;
 
-    // 自回歸生成（greedy）
-    std::vector<int> gen_ids = prompt_ids;
-    int max_gen = total_len - prompt_ids.size();
+        // 自回歸生成（greedy）
+        std::vector<int> gen_ids = prompt_ids;
+        auto expected_ids = tokenize(texts[p]);
+        int max_gen = expected_ids.size() - prompt_ids.size();
 
-    for (int step = 0; step < max_gen; step++) {
-        int cur_len = gen_ids.size();
-        std::vector<int> cur_input(seq_len, 0);
-        int offset = 0;
-        if (cur_len > seq_len) offset = cur_len - seq_len;
-        for (int i = 0; i < seq_len && (offset + i) < cur_len; i++)
-            cur_input[i] = gen_ids[offset + i];
+        for (int step = 0; step < max_gen; step++) {
+            int cur_len = gen_ids.size();
+            std::vector<int> cur_input(seq_len, 0);
+            int offset = 0;
+            if (cur_len > seq_len) offset = cur_len - seq_len;
+            for (int i = 0; i < seq_len && (offset + i) < cur_len; i++)
+                cur_input[i] = gen_ids[offset + i];
 
-        emb_op.set_indices(cur_input);
-        for (auto op : ops) op->forward();
+            emb_op.set_indices(cur_input);
+            for (auto op : ops) op->forward();
 
-        int last_pos = std::min(cur_len - 1, seq_len - 1);
-        float max_val = -1e9f;
-        int max_idx = 0;
-        for (int j = 0; j < vocab_size; j++) {
-            float v = logits->data[last_pos * vocab_size + j].val;
-            if (v > max_val) { max_val = v; max_idx = j; }
+            int last_pos = std::min(cur_len - 1, seq_len - 1);
+            float max_val = -1e9f;
+            int max_idx = 0;
+            for (int j = 0; j < vocab_size; j++) {
+                float v = logits->data[last_pos * vocab_size + j].val;
+                if (v > max_val) { max_val = v; max_idx = j; }
+            }
+            gen_ids.push_back(max_idx);
+            for (auto op : ops) op->clear();
         }
-        gen_ids.push_back(max_idx);
-        for (auto op : ops) op->clear();
+
+        std::string generated = "";
+        for (int i = prompt_ids.size(); i < (int)gen_ids.size(); i++)
+            generated += vocab[gen_ids[i]];
+
+        std::cout << "🔮 A: " << generated;
+        if (generated == expected_answers[p]) {
+            std::cout << " ✅" << std::endl;
+            all_correct++;
+        } else {
+            std::cout << " ❌ (expected: " << expected_answers[p] << ")" << std::endl;
+        }
     }
 
-    std::string generated = "";
-    for (int i = prompt_ids.size(); i < (int)gen_ids.size(); i++)
-        generated += vocab[gen_ids[i]];
-
-    std::cout << "🔮 Generated: " << generated << std::endl;
     std::cout << std::endl;
-
-    std::string expected = "Nami是厲害的AI工程師";
-    if (generated == expected)
-        std::cout << "✅ Perfect! GPT-1 Mini 成功！" << std::endl;
+    if (all_correct == (int)prompts.size())
+        std::cout << "✅ Perfect! GPT-1 Mini 全部答對！(" << all_correct << "/" << prompts.size() << ")" << std::endl;
     else
-        std::cout << "⚠️  Expected: " << expected << std::endl;
+        std::cout << "📊 " << all_correct << "/" << prompts.size() << " correct" << std::endl;
 
     // 清理
     delete emb_weight; delete pos_enc; delete emb_out; delete pos_out;
