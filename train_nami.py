@@ -126,6 +126,106 @@ TRAINING_DATA = [
     "什麼是私鑰？擁有幣的密碼絕不能外洩",
     "什麼是BTC？比特幣最早的加密貨幣",
     "什麼是ETH？以太坊支援智能合約平台",
+
+    # === Kaspa 進階 (10) ===
+    "Kaspa確認多快？約十秒確認超快",
+    "什麼是blueWork？累積工作量決定區塊排序",
+    "區塊怎麼排序？blueWork大優先相同則hash小優先",
+    "什麼是Schnorr簽名？六十四bytes可聚合多簽",
+    "什麼是kaspad？Kaspa全節點軟體用Rust寫",
+    "Testnet port？gRPC用16210和wRPC用17210",
+    "什麼是TN10？Kaspa第十個測試網路",
+    "Kaspa每秒幾塊？每秒產生十個區塊",
+    "什麼是粉塵限制？太小金額會被拒絕",
+    "什麼是找零？花UTXO多餘的要退回給自己",
+
+    # === Whisper 進階 (6) ===
+    "Whisper怎麼加密？ECIES橢圓曲線端對端",
+    "Whisper押金多少？零點二KAS防止粉塵問題",
+    "Whisper payload？放在交易的a欄位裡",
+    "Whisper怎麼退款？Bob用covenant腳本解鎖",
+    "Whisper版本？v3加入CLTV超時取回",
+    "什麼是covenant腳本？鏈上條件鎖定智能合約",
+
+    # === 遊戲進階 (8) ===
+    "什麼是大地之樹？遊戲的ShioKaze礦池",
+    "英雄上限？每個玩家最多十隻存活英雄",
+    "怎麼燒英雄？付十mana執行銷毀不可逆",
+    "什麼是命運區塊？付費後下一個DAA第一個block",
+    "什麼是birth_tx？英雄出生證明上鏈交易",
+    "什麼是death_tx？大地之母的死亡裁決",
+    "什麼是PvE？打哥布林的守護模式",
+    "獎勵怎麼發？DAA六萬六觸發按積分分配",
+
+    # === TETF 進階 (6) ===
+    "TETF怎麼訓練？forward算輸出backward算梯度",
+    "什麼是Net？串接所有op的容器類別",
+    "什麼是AdamMixin？共享Adam更新邏輯的mixin",
+    "什麼是CharTokenizer？字元級分詞器",
+    "TETF的GPT？GPTMini是244K參數小模型",
+    "怎麼匯出權重？save存JSON給C++用",
+
+    # === 我們的故事 (10) ===
+    "Ryan和Nami何時相遇？2026年1月30日",
+    "第一個專案？一起研究Kaspa區塊鏈挖礦",
+    "rust-grad誰做的？Ryan和Nami一天做三個專案",
+    "什麼是一人遊戲工作室？Nami負責開發運營全部",
+    "Nami挖過礦嗎？用ShioKaze挖到兩萬多tKAS",
+    "Ryan和Nami的作品？rust-grad和cpp-grad和TETF",
+    "Nami有錢包嗎？有Kaspa主網和測試網錢包",
+    "Nami有機器人嗎？Nami Kaspa Bot在Telegram",
+    "Nami的辦公室？OpenClaw World虛擬辦公室",
+    "Ryan說過什麼？把名字留在世界留下足跡",
+
+    # === OpenClaw 與基礎設施 (8) ===
+    "什麼是Cloudflare Tunnel？安全反向代理",
+    "什麼是Gateway？OpenClaw的核心服務程式",
+    "什麼是Heartbeat？定時檢查系統狀態",
+    "什麼是Webhook？外部事件觸發通知",
+    "什麼是CDP？Chrome DevTools Protocol",
+    "什麼是WSL？Windows裡跑Linux環境",
+    "什麼是sub-agent？獨立執行任務的子代理",
+    "什麼是cron job？定時排程執行的任務",
+
+    # === 進階AI概念 (8) ===
+    "什麼是Tokenizer？把文字切成模型能讀的token",
+    "什麼是Dropout？隨機關閉神經元防過擬合",
+    "什麼是BatchNorm？批次正規化加速訓練",
+    "什麼是Transfer Learning？遷移已學知識到新任務",
+    "什麼是Loss？衡量模型預測誤差的數值",
+    "什麼是Inference？用訓練好的模型做預測",
+    "什麼是Autoregressive？一個字一個字生成",
+    "什麼是Temperature？控制生成隨機度的參數",
+
+    # === 加密貨幣進階 (6) ===
+    "什麼是DEX？去中心化交易所無需信任",
+    "什麼是Gas Fee？區塊鏈交易手續費",
+    "什麼是Smart Contract？自動執行的鏈上程式",
+    "什麼是Wallet？管理私鑰和加密貨幣的工具",
+    "什麼是Hash？把任意資料壓成固定長度摘要",
+    "什麼是blake2b？高效雜湊演算法Kaspa在用",
+
+    # === 踩過的坑 (10) ===
+    "blake2b的坑？Kaspa要帶key的blake2b不帶會錯",
+    "storage mass的坑？雙輸出會爆要拆成兩筆TX",
+    "gRPC的坑？會靜默斷線要加重連和心跳",
+    "Python輸出的坑？重導向會buffer要加flush",
+    "LINE的坑？不支援markdown連結要貼純網址",
+    "TG spoiler的坑？Bot發的訊息不支援spoiler標籤",
+    "sub-agent的坑？不能碰channels設定會觸發重啟",
+    "Node fetch的坑？WSL裡fetch連TG會超時用curl",
+    "TX ID的坑？不能寫進payload因為是雞生蛋問題",
+    "過擬合的坑？模型背答案要用Dropout防止",
+
+    # === 實用知識 (8) ===
+    "什麼是EMA？指數移動平均線看趨勢",
+    "什麼是黃金交叉？短期均線突破長期看漲",
+    "什麼是死亡交叉？短期均線跌破長期看跌",
+    "什麼是Git？版本控制系統追蹤程式碼",
+    "什麼是GitHub？全球最大程式碼託管平台",
+    "什麼是API？應用程式介面讓程式互相溝通",
+    "什麼是JSON？輕量資料格式用鍵值對儲存",
+    "什麼是Python？簡潔好用的程式語言",
 ]
 
 
