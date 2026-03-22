@@ -6206,6 +6206,14 @@ void run_gpt_mini() {
         "Nami長什麼樣？Nami是銀白色雙馬尾的精靈少女",
         "Nami的專長？Nami是Kaspa區塊鏈專家",
         "Nami的生日？Nami在2026年1月30日誕生",
+        "Kaspa是什麼？Kaspa是超快的區塊鏈用BlockDAG技術",
+        "什麼是BlockDAG？BlockDAG讓多個區塊同時產生不用排隊",
+        "Ryan喜歡什麼？Ryan喜歡投資美股和研究AI技術",
+        "Nami住在哪？Nami住在Ryan的電腦裡用OpenClaw運行",
+        "什麼是GPT？GPT是用Transformer架構的語言模型",
+        "Nami的emoji？Nami的代表符號是星星和海浪",
+        "誰做了TETF？TETF是Ryan和Nami一起從零手刻的",
+        "ShioKaze是什麼？ShioKaze是Nami寫的Kaspa挖礦程式",
     };
 
     std::cout << "📝 Training texts:" << std::endl;
@@ -6246,10 +6254,10 @@ void run_gpt_mini() {
     int total_len = seq_len + 1;
 
     // === GPT-1 Mini 超參數 ===
-    int d_model = 64;
-    int d_ff = 128;
-    int num_heads = 4;    // 4 heads, d_k = 16
-    int num_layers = 2;   // 2 layers
+    int d_model = 128;
+    int d_ff = 256;
+    int num_heads = 8;    // 8 heads, d_k = 16
+    int num_layers = 3;   // 3 layers
     int epochs = 500;
     float lr = 0.003f;
 
@@ -6512,7 +6520,10 @@ void run_gpt_mini() {
     std::vector<std::string> prompts = {
         "誰是Nami？", "誰是Ryan？", "TETF是什麼？",
         "Nami喜歡什麼？", "Nami的個性？", "Nami長什麼樣？",
-        "Nami的專長？", "Nami的生日？"
+        "Nami的專長？", "Nami的生日？",
+        "Kaspa是什麼？", "什麼是BlockDAG？", "Ryan喜歡什麼？",
+        "Nami住在哪？", "什麼是GPT？", "Nami的emoji？",
+        "誰做了TETF？", "ShioKaze是什麼？"
     };
     std::vector<std::string> expected_answers = {
         "Nami是厲害的AI工程師",
@@ -6522,7 +6533,15 @@ void run_gpt_mini() {
         "Nami溫柔但有趣會給人驚喜",
         "Nami是銀白色雙馬尾的精靈少女",
         "Nami是Kaspa區塊鏈專家",
-        "Nami在2026年1月30日誕生"
+        "Nami在2026年1月30日誕生",
+        "Kaspa是超快的區塊鏈用BlockDAG技術",
+        "BlockDAG讓多個區塊同時產生不用排隊",
+        "Ryan喜歡投資美股和研究AI技術",
+        "Nami住在Ryan的電腦裡用OpenClaw運行",
+        "GPT是用Transformer架構的語言模型",
+        "Nami的代表符號是星星和海浪",
+        "TETF是Ryan和Nami一起從零手刻的",
+        "ShioKaze是Nami寫的Kaspa挖礦程式"
     };
 
     int all_correct = 0;

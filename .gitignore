@@ -1,2 +1,5 @@
 main.cc.bak
 tetf
+TETF
+*.json
+!package.json
