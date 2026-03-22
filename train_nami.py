@@ -1026,11 +1026,12 @@ def train(epochs=500, lr=0.003):
 
             if correct == len(TRAINING_DATA):
                 perfect_count += 1
-                if perfect_count >= 3:
+                if perfect_count >= 2:
                     print(f"\n🎉 Converged at epoch {epoch}! ({elapsed:.1f}s)")
                     break
             else:
-                perfect_count = 0
+                if perfect_count > 0:
+                    perfect_count -= 1  # 容忍偶爾震盪，不完全歸零
 
         if avg_loss < best_loss:
             best_loss = avg_loss
