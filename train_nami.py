@@ -992,7 +992,17 @@ def train(epochs=500, lr=0.003):
     best_loss = float('inf')
     perfect_count = 0
 
+    warmup_epochs = max(int(epochs * 0.1), 5)
+
     for epoch in range(epochs):
+        # === Cosine LR schedule with warmup ===
+        if epoch < warmup_epochs:
+            current_lr = lr * (epoch + 1) / warmup_epochs
+        else:
+            progress = (epoch - warmup_epochs) / max(epochs - warmup_epochs, 1)
+            current_lr = lr * 0.5 * (1 + np.cos(np.pi * progress))
+        model.lr = current_lr
+
         total_loss = 0
         indices = np.random.permutation(len(TRAINING_DATA))
 
@@ -1022,7 +1032,7 @@ def train(epochs=500, lr=0.003):
 
             acc = correct / len(TRAINING_DATA) * 100
             elapsed = time.time() - start
-            print(f"  Epoch {epoch:4d} | loss={avg_loss:.4f} | acc={correct}/{len(TRAINING_DATA)} ({acc:.1f}%) | {elapsed:.1f}s")
+            print(f"  Epoch {epoch:4d} | loss={avg_loss:.4f} | acc={correct}/{len(TRAINING_DATA)} ({acc:.1f}%) | lr={current_lr:.5f} | {elapsed:.1f}s")
 
             if correct == len(TRAINING_DATA):
                 perfect_count += 1
